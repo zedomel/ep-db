@@ -48,8 +48,10 @@ public class MultidimensionalProjection {
 			Properties properties = new Properties();
 			properties.load(new FileInputStream(PROP_FILE));
 			
+			System.out.println("Updating MDP...");
 			MultidimensionalProjection mdp = new MultidimensionalProjection(properties);
 			mdp.project();
+			System.out.println("MDP successful updated");
 
 		} catch (Exception e) {
 			e.printStackTrace(System.err);

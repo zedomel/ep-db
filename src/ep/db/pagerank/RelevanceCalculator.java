@@ -54,8 +54,10 @@ public class RelevanceCalculator {
 			Properties properties = new Properties();
 			properties.load(new FileInputStream(PROP_FILE));
 			
+			System.out.println("Updating ranking...");
 			RelevanceCalculator ranking = new RelevanceCalculator(properties);
 			ranking.updateRelevance();
+			System.out.println("Ranking successful updated");
 
 		} catch (Exception e) {
 			e.printStackTrace(System.err);
