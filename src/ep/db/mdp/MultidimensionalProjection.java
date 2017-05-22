@@ -1,6 +1,9 @@
 package ep.db.mdp;
 
+import java.io.BufferedWriter;
+import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileWriter;
 import java.util.Properties;
 
 import cern.colt.matrix.DoubleMatrix2D;
@@ -27,6 +30,19 @@ public class MultidimensionalProjection {
 			e.printStackTrace();
 		}
 
+		File csv = new File("bag_of_words_small.csv");
+		try (BufferedWriter bw = new BufferedWriter(new FileWriter(csv))){
+			
+			for(int i = 0; i < matrix.rows(); i++){
+				bw.write(String.format("%f", matrix.getQuick(i, 0)));
+				for(int j = 1; j < matrix.columns(); j++)
+					bw.write(String.format(",%f", matrix.getQuick(i, j)));
+				bw.newLine();
+			}
+			
+		}catch (Exception e) {
+			// TODO: handle exception
+		}
 		// Realiza projeção multidimensional
 		Lamp lamp = new Lamp();
 		DoubleMatrix2D y = lamp.project(matrix);

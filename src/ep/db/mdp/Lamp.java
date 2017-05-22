@@ -1,5 +1,7 @@
 package ep.db.mdp;
 
+import java.awt.Color;
+import java.awt.Shape;
 import java.io.IOException;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -8,6 +10,16 @@ import java.util.Set;
 
 import org.jblas.DoubleMatrix;
 import org.jblas.ranges.RangeUtils;
+import org.jfree.chart.ChartFactory;
+import org.jfree.chart.ChartPanel;
+import org.jfree.chart.JFreeChart;
+import org.jfree.chart.plot.XYPlot;
+import org.jfree.chart.renderer.xy.XYItemRenderer;
+import org.jfree.data.xy.XYSeries;
+import org.jfree.data.xy.XYSeriesCollection;
+import org.jfree.ui.ApplicationFrame;
+import org.jfree.ui.RefineryUtilities;
+import org.jfree.util.ShapeUtilities;
 
 import cern.colt.matrix.DoubleFactory1D;
 import cern.colt.matrix.DoubleFactory2D;
@@ -21,16 +33,16 @@ import cern.jet.math.Functions;
 public class Lamp {
 
 	private static final double TOL = 1e-6;
-	
+
 	private final Random rng;
 
 	public Lamp() {
 		rng = new Random();
 	}
-	
+
 	public DoubleMatrix2D project(DoubleMatrix2D x){
 		DoubleMatrix2D xs, ys;
-		
+
 		// Seleciona control points aleatoriamente
 		int n = (int) Math.sqrt( x.rows() );
 		Set<Integer> sample = new HashSet<>(n);
@@ -38,18 +50,18 @@ public class Lamp {
 			Integer next = rng.nextInt( x.rows() );
 			sample.add(next);
 		}
-		
+
 		int[] cpoints = new int[n];
 		Iterator<Integer> iter = sample.iterator();
 		for(int j = 0; j < n && iter.hasNext(); j++){
 			cpoints[j] = iter.next();
 		}
-		
+
 		// Projeta control points usando MDS
 		ForceScheme forceScheme = new ForceScheme();
 		xs = x.viewSelection(cpoints, null).copy();
 		ys = forceScheme.project(xs);
-		
+
 		// Projeta restante dos pontos
 		return project(x, cpoints, ys);
 	}
@@ -57,7 +69,7 @@ public class Lamp {
 	public DoubleMatrix2D project(DoubleMatrix2D x, int[] cpoints, DoubleMatrix2D ys){
 
 		DoubleMatrix2D xs = x.viewSelection(cpoints, null).copy();
-		
+
 		int ninst = x.rows(),
 				dim = x.columns();
 		int k = cpoints.length,
@@ -68,7 +80,7 @@ public class Lamp {
 
 		final Algebra alg = new Algebra();
 		DoubleMatrix2D Y = DoubleFactory2D.sparse.make(ninst, p, 0.0);
-		
+
 		for (int pt = 0; pt < ninst; pt++){
 			// Computes alphas
 			DoubleMatrix1D alpha = DoubleFactory1D.sparse.make(k, 0.0);
@@ -83,15 +95,15 @@ public class Lamp {
 					skip = true;
 					break;
 				}
-				
+
 				alpha.setQuick(i, 1.0 / norm2);
 			}
-			
+
 			if ( skip )
 				continue;
 
 			double alphaSum = alpha.zSum();
-			
+
 			// Computes x~ and y~ (eq. 3)
 			DoubleMatrix1D xtilde = DoubleFactory1D.dense.make(dim, 0.0);
 			DoubleMatrix1D ytilde = DoubleFactory1D.dense.make(p, 0.0);
@@ -106,16 +118,16 @@ public class Lamp {
 				xhat.viewRow(i).assign(xtilde, Functions.minus);
 				yhat.viewRow(i).assign(ytilde, Functions.minus);
 			}
-			
+
 			DoubleMatrix2D At, B;
-			
+
 			// Sqrt(alpha)
 			alpha.assign(Functions.sqrt);
 			for(int i = 0; i < xhat.columns(); i++ )
 				xhat.viewColumn(i).assign(alpha, Functions.mult);
 			for(int i = 0; i < yhat.columns(); i++ )
 				yhat.viewColumn(i).assign(alpha, Functions.mult);
-			
+
 			At = xhat.viewDice();
 			B = yhat;
 
@@ -124,7 +136,7 @@ public class Lamp {
 
 			// eq. 7: M = UV
 			DoubleMatrix2D M = U.zMult(V.viewDice(), null); 
-			
+
 			//eq. 8: y = (x - xtil) * M + ytil
 			DoubleMatrix1D rowX = x.viewRow(pt).copy();
 			rowX = M.viewDice().zMult(rowX.assign(xtilde, Functions.minus),null).assign(ytilde, Functions.plus);
@@ -137,9 +149,9 @@ public class Lamp {
 	public static void main(String[] args) throws IOException {
 
 		DoubleMatrix data = DoubleMatrix.loadCSVFile("/Users/jose/Documents/freelancer/petricaep/lamp-python/iris.data");
-		
+
 		DoubleMatrix2D x = new DenseDoubleMatrix2D(data.getColumns(RangeUtils.interval(0, data.columns-1)).toArray2());
-		
+
 		int[] indices = new int[]{47,   3,  31,  25,  15, 118,  89,   6, 103,  65,  88,  38,  92};
 
 		DoubleMatrix2D ys = new DenseDoubleMatrix2D(new double[][]{
@@ -157,15 +169,45 @@ public class Lamp {
 			{ 0.89253817,  0.46421933},
 			{-0.02987608,  0.6828974 }
 		});
-		
+
 		Lamp lamp = new Lamp();
 		DoubleMatrix2D y = lamp.project(x, indices, ys);
-		
+
+		XYSeriesCollection dataset = new XYSeriesCollection();
+        XYSeries series = new XYSeries("Random");
 		for( int i = 0; i < y.rows(); i++){
-			for(int j = 0; j < y.columns(); j++)
+			for(int j = 0; j < y.columns(); j++){
 				System.out.print(String.format("%e ", y.get(i,j)));
+			}
+			series.add(y.get(i, 0), y.get(i, 1));
 			System.out.println();
 		}
+
+		dataset.addSeries(series);
+		
+		JFreeChart jfreechart = ChartFactory.createScatterPlot("MDP", "X","Y", dataset);
+		Shape cross = ShapeUtilities.createDiagonalCross(3, 1);
+        XYPlot xyPlot = (XYPlot) jfreechart.getPlot();
+        xyPlot.setDomainCrosshairVisible(true);
+        xyPlot.setRangeCrosshairVisible(true);
+        XYItemRenderer renderer = xyPlot.getRenderer();
+        renderer.setSeriesShape(0, cross);
+        renderer.setSeriesPaint(0, Color.red);
+		
+		final ChartPanel panel = new ChartPanel(jfreechart, true);
+		panel.setPreferredSize(new java.awt.Dimension(500, 270));
+
+		panel.setMinimumDrawHeight(10);
+		panel.setMaximumDrawHeight(2000);
+		panel.setMinimumDrawWidth(20);
+		panel.setMaximumDrawWidth(2000);
+
+		ApplicationFrame frame = new ApplicationFrame("MDP");
+		frame.setContentPane(panel);
+		frame.pack();
+		RefineryUtilities.centerFrameOnScreen(frame);
+		frame.setVisible(true);
+
 	}
 
 }

@@ -91,8 +91,8 @@ public final class GrobIDDocumentParser implements DocumentParser{
 
 	@Override
 	public List<Author> getAuthors() {
-		if (metadata.getFullAuthors() != null)
-			return Utils.getAuthors(metadata.getFullAuthors());
+		if (metadata.getAuthors() != null)
+			return Utils.getAuthors(metadata.getAuthors());
 		return null;
 	}
 
@@ -181,7 +181,7 @@ public final class GrobIDDocumentParser implements DocumentParser{
 				Document ref = new Document();
 
 				ref.setDOI(bib.getDOI());
-				ref.setAuthors(Utils.getAuthors(bib.getFullAuthors()));
+				ref.setAuthors(Utils.getAuthors(bib.getAuthors()));
 				ref.setTitle(bib.getTitle());
 				ref.setAbstract(bib.getAbstract());
 				ref.setIssue(bib.getIssue());

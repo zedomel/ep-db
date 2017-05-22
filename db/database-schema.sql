@@ -35,12 +35,9 @@ CREATE TABLE documents (
 
 CREATE TABLE authors (
 	aut_id		bigserial PRIMARY KEY,
-	last_name	varchar(150),
-	middle_name varchar(150),
-	first_name	varchar(150),
-	email		varchar(50),
-	affiliation	varchar(255),
-	UNIQUE(last_name,middle_name,first_name)
+	aut_name	varchar(500),
+	aut_name_tsv	tsvector,
+	UNIQUE(aut_name)
 );
 
 CREATE TABLE document_authors(
@@ -69,6 +66,16 @@ CREATE INDEX source_idx ON citations(doc_id);
 CREATE INDEX target_idx ON citations(ref_id);
 
 ALTER TABLE citations ADD CONSTRAINT no_self_loops_chk CHECK (doc_id <> ref_id);
+
+CREATE OR REPLACE FUNCTION authors_trigger() RETURNS TRIGGER AS $authors_trigger$
+	BEGIN
+  		new.aut_name_tsv := to_tsvector(coalesce(new.aut_name,''));
+  	return new;
+	END;
+$authors_trigger$ LANGUAGE plpgsql;
+
+CREATE TRIGGER tsvector_aut_update BEFORE INSERT OR UPDATE
+    ON authors FOR EACH ROW EXECUTE PROCEDURE authors_trigger();
 
 CREATE OR REPLACE FUNCTION documents_trigger() RETURNS TRIGGER AS $documents_trigger$
 	BEGIN

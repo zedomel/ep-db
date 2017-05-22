@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.apache.commons.lang3.text.WordUtils;
 import org.grobid.core.data.Person;
 
 import ep.db.model.Author;
@@ -30,8 +31,10 @@ public final class Utils {
 	}
 
 	public static String sanitize(String text){
-		if (text != null)
-			return text.replaceAll("[,|;|\\.|-]", "");
+		if (text != null){
+			String ret = text.replaceAll("\\[|,|;|\\.|\\-|\\]", " ").replaceAll("\\s{2}", " ").trim().toLowerCase();
+			return WordUtils.capitalize(ret);
+		}
 		return "";
 	}
 
@@ -82,20 +85,15 @@ public final class Utils {
 		return 0;
 	}
 
-	public static List<Author> getAuthors(List<Person> fullAuthors) {
-		if ( fullAuthors != null ){
-			List<Author> authors = new ArrayList<>(fullAuthors.size());
-			for(Person p : fullAuthors){
-				Author author = new Author();
-				author.setFirstName(Utils.sanitize(p.getFirstName()));
-				author.setMiddleName(Utils.sanitize(p.getMiddleName()));
-				author.setLastName(Utils.sanitize(p.getLastName()));
-				author.setEmail(p.getEmail());
-				if (p.getAffiliations() != null && p.getAffiliations().size() > 0 )
-					author.setAffiliation(p.getAffiliations().get(0).getAffiliationString());
-				authors.add(author);
+	public static List<Author> getAuthors(String authors) {
+		if ( authors != null ){
+			String[] arr = authors.split(";");
+			List<Author> list = new ArrayList<>(arr.length);
+			for(String a : arr){
+				Author author = new Author(Utils.sanitize(a));
+				list.add(author);
 			}	
-			return authors;
+			return list;
 		}
 		return new ArrayList<>(0);
 	}

@@ -8,6 +8,11 @@
 		<sourceDirectory>src</sourceDirectory>
 		<plugins>
 			<plugin>
+				<groupId>org.codehaus.mojo</groupId>
+				<artifactId>exec-maven-plugin</artifactId>
+				<version>1.6.0</version>
+			</plugin>
+			<plugin>
 				<artifactId>maven-compiler-plugin</artifactId>
 				<version>3.5.1</version>
 				<configuration>
@@ -189,6 +194,11 @@
 			<groupId>net.sf.jung</groupId>
 			<artifactId>jung-graph-impl</artifactId>
 			<version>2.1.1</version>
+		</dependency>
+		<dependency>
+			<groupId>org.jfree</groupId>
+			<artifactId>jfreechart</artifactId>
+			<version>1.0.19</version>
 		</dependency>
 	</dependencies>
 </project>

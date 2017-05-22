@@ -25,33 +25,15 @@ import edu.uci.ics.jung.graph.DirectedSparseGraph;
 import ep.db.extractor.Utils;
 import ep.db.model.Author;
 import ep.db.model.Document;
-import ep.db.model.SimpleDocument;
 
 public class DatabaseService {
 
 	private static final String PROP_FILE = "config.properties";
 
-	private static final String DOCUMENTS_SQL = "SELECT d.*, da.x, da.y, da.relevance, ts_rank(tsv, query, 32) rank FROM documents d "
-			+ "INNER JOIN documents_data da ON d.doc_id = da.doc_id, to_tsquery(?) query "
-			+ "WHERE query @@ tsv ORDER BY rank DESC";
-
-	private static final String SEARCH_SQL = "SELECT d.doc_id, d.doi, d.title, d.authors, d.keywords, d.publication_date, "
-			+ "da.x, da.y, da.relevance, ts_rank(tsv, query, 32) rank FROM documents d "
-			+ "INNER JOIN documents_data da ON d.doc_id = da.doc_id, to_tsquery(?) query "
-			+ "WHERE query @@ tsv ORDER BY doc_id LIMIT ?";
-
-	private static final String ADVANCED_SEARCH_SQL = "SELECT d.doc_id, d.doi, d.title, d.authors, d.keywords, d.publication_date, "
-			+ "da.x, da.y, da.relevance, ts_rank(tsv, query, 32) rank FROM documents d "
-			+ "INNER JOIN documents_data da ON d.doc_id = da.doc_id, to_tsquery(?) query "
-			+ "WHERE query @@ tsv AND %advanced_query ORDER BY doc_id LIMIT ?";
-
 	private static final String GRAPH_SQL = "with nodes as (select row_number() over(order by doc_id ) as row_number, "
 			+ "doc_id n from documents) "
 			+ "select doc_id as source,row_number as target from citations c "
 			+ "inner join nodes ON c.ref_id = nodes.n order by doc_id, row_number";
-
-	private static final String COUNT_REFERENCES = "WITH nodes AS (SELECT doc_id as n FROM citations UNION SELECT ref_id FROM citations) "
-			+ "SELECT count(*) FROM nodes;";
 
 	private static final String INSERT_DOC = "INSERT INTO documents AS d (title, doi, keywords, abstract, "
 			+ "publication_date, volume, pages, issue, container, container_issn, language ) "
@@ -67,13 +49,9 @@ public class DatabaseService {
 			+ "container_issn = coalesce(d.container_issn, excluded.container_issn), "
 			+ "language = coalesce(d.language, excluded.language) ";
 
-	private static final String INSERT_AUTHOR = "INSERT INTO authors as a (last_name, middle_name, first_name, email, "
-			+ "affiliation) VALUES (?,?,?,?,?) ON CONFLICT (last_name,middle_name,first_name) DO UPDATE "
-			+ "SET last_name = coalesce(a.last_name,excluded.last_name), "
-			+ "middle_name = coalesce(a.middle_name,excluded.middle_name), "
-			+ "first_name = coalesce(a.first_name,excluded.first_name),"
-			+ "email = coalesce(a.email,excluded.email), "
-			+ "affiliation = coalesce(a.affiliation,excluded.affiliation)";
+	private static final String INSERT_AUTHOR = "INSERT INTO authors as a (aut_name) "
+			+ "VALUES (?) ON CONFLICT (aut_name) DO UPDATE "
+			+ "SET aut_name = coalesce(a.aut_name,excluded.aut_name); ";
 
 	private static final String INSERT_DOC_AUTHOR = "INSERT INTO document_authors as a (doc_id,aut_id) VALUES(?,?) "
 			+ "ON CONFLICT DO NOTHING";
@@ -87,11 +65,6 @@ public class DatabaseService {
 
 	private static final String UPDATE_RELEVANCE = "UPDATE documents_data SET relevance = ? WHERE doc_id = ?";
 
-	private static final String GET_OPTION = "SELECT option_value FROM options WHERE option_name = ? LIMIT 1";
-
-	private static final String SET_OPTION = "INSERT INTO options(option_name, option_value) VALUES (?,?) ON CONFLICT (option_name)"
-			+ " DO UPDATE SET option_value = EXCLUDED.option_value";
-
 	private Database db;
 
 	private final int batchSize;
@@ -99,94 +72,6 @@ public class DatabaseService {
 	public DatabaseService(Properties config) {
 		this.db = new Database(config);
 		this.batchSize = Integer.parseInt(config.getProperty("db.batch_size", "100"));
-	}
-
-	public List<Document> getFullDocuments(String querySearch, int limit) throws Exception {
-		try ( Connection conn = db.getConnection();){
-			String sql = DOCUMENTS_SQL;
-			if ( limit > 0)
-				sql += " LIMIT " + limit;
-			PreparedStatement stmt = conn.prepareStatement(sql);
-			stmt.setString(1, querySearch);
-
-			try (ResultSet rs = stmt.executeQuery()){
-				List<Document> docs = new ArrayList<>();
-				while ( rs.next() ){
-					Document doc = newDocument( rs );
-					docs.add(doc);
-				}
-				return docs;
-			}catch (SQLException e) {
-				throw e;
-			}
-		}catch( Exception e){
-			throw e;
-		}
-	}
-
-	public List<SimpleDocument> getSimpleDocuments(String querySearch, int limit) throws Exception {
-		try ( Connection conn = db.getConnection();){
-			PreparedStatement stmt = conn.prepareStatement(SEARCH_SQL);
-			stmt.setString(1, querySearch);
-			if ( limit > 0)
-				stmt.setInt(2, limit);
-			else
-				stmt.setNull(2, java.sql.Types.INTEGER);
-
-			try (ResultSet rs = stmt.executeQuery()){
-				List<SimpleDocument> docs = new ArrayList<>();
-				while ( rs.next() ){
-					SimpleDocument doc = newSimpleDocument( rs );
-					docs.add(doc);
-				}
-				return docs;
-			}catch (SQLException e) {
-				throw e;
-			}
-		}catch( Exception e){
-			throw e;
-		}
-	}
-
-	public List<SimpleDocument> getAdvancedSimpleDocuments(String querySearch, String authors, String yearStart, 
-			String yearEnd, int limit) throws Exception {
-		try ( Connection conn = db.getConnection();){
-			StringBuilder sql = new StringBuilder(ADVANCED_SEARCH_SQL);
-			if ( !authors.isEmpty() )
-				sql.append( "authors LIKE ? AND ");
-			if ( !yearStart.isEmpty() )
-				sql.append(" publication_year >= ? AND");
-			if ( !yearStart.isEmpty() )
-				sql.append(" publication_year <= ? AND ");
-			sql.append("TRUE");
-
-			PreparedStatement stmt = conn.prepareStatement(sql.toString());
-			stmt.setString(1, querySearch);
-			int index = 2;
-			if ( !authors.isEmpty() )
-				stmt.setString(index++, authors);
-			if ( !yearStart.isEmpty() )
-				stmt.setInt(index++, Integer.parseInt(yearStart));
-			if ( !yearEnd.isEmpty() )
-				stmt.setInt(index++, Integer.parseInt(yearEnd));
-			if ( limit > 0 )
-				stmt.setInt(index, limit);
-			else
-				stmt.setNull(index, java.sql.Types.INTEGER);
-
-			try (ResultSet rs = stmt.executeQuery()){
-				List<SimpleDocument> docs = new ArrayList<>();
-				while ( rs.next() ){
-					SimpleDocument doc = newSimpleDocument( rs );
-					docs.add(doc);
-				}
-				return docs;
-			}catch (SQLException e) {
-				throw e;
-			}
-		}catch( Exception e){
-			throw e;
-		}
 	}
 
 	public int getNumberOfDocuments() throws Exception {
@@ -237,45 +122,6 @@ public class DatabaseService {
 		}catch( Exception e){
 			throw e;
 		}
-	}
-
-	private SimpleDocument newSimpleDocument(ResultSet rs) throws SQLException {
-		//d.doc_id, d.doi, d.title, d.authors, d.keywords, d.publication_date, 
-		//da.x, da.y, da.relevance, ts_rank(tsv, query, 32) rank
-		SimpleDocument doc = new SimpleDocument();
-		doc.setDocId( rs.getLong(1) );
-		doc.setDOI( rs.getString(2) );
-		doc.setTitle( rs.getString(3) );
-		doc.setAuthors(rs.getString(4));
-		doc.setKeywords(rs.getString(5));
-		doc.setPublicationDate(rs.getString(6));
-		doc.setX(rs.getDouble(7));
-		doc.setY(rs.getDouble(8));
-		doc.setRelevance(rs.getDouble(9));
-		doc.setScore(rs.getDouble(10));
-		return doc;
-	}
-
-	private Document newDocument(ResultSet rs) throws SQLException {
-		Document doc = new Document();
-		doc.setDocId( rs.getLong(1) );
-		doc.setDOI( rs.getString(2) );
-		doc.setTitle( rs.getString(3) );
-		//		doc.setAuthors(rs.getString(4)); TODO: get authors from authors table
-		doc.setKeywords(rs.getString(5));
-		doc.setAbstract(rs.getString(6));
-		doc.setPublicationDate(rs.getString(7));
-		doc.setVolume(rs.getString(8));
-		doc.setPages(rs.getString(9));
-		doc.setIssue(rs.getString(10));
-		doc.setContainer(rs.getString(11));
-		doc.setISSN(rs.getString(12));
-		doc.setLanguage(rs.getString(13));
-		doc.setX(rs.getDouble(14));
-		doc.setY(rs.getDouble(15));
-		doc.setRelevance(rs.getDouble(16));
-		doc.setRank(rs.getDouble(17));
-		return doc;
 	}
 
 	public DoubleMatrix2D buildFrequencyMatrix(long[] docIds) throws Exception {
@@ -392,24 +238,20 @@ public class DatabaseService {
 			addAuthors(documents);
 			addDocumetAuthors(documents);
 		}
-		
+
 		return docIds.stream().mapToLong(l->l).toArray();
 	}
-	
+
 	private long[] addAuthors(List<Document> documents) throws Exception {
 		try ( Connection conn = db.getConnection();){
 			PreparedStatement stmt = conn.prepareStatement(INSERT_AUTHOR, Statement.RETURN_GENERATED_KEYS);
 			int count = 0;
 
 			List<Long> ids = new ArrayList<>();
-			
+
 			for( Document doc : documents){
 				for( Author author : doc.getAuthors() ){
-					stmt.setString(1, author.getLastName());
-					stmt.setString(2, author.getMiddleName());
-					stmt.setString(3, author.getFirstName());
-					stmt.setString(4, author.getEmail());
-					stmt.setString(5, author.getAffiliation());
+					stmt.setString(1, author.getName());
 					stmt.addBatch();
 
 					if(++count % batchSize == 0){
@@ -513,7 +355,7 @@ public class DatabaseService {
 			String sql = "SELECT word,nentry FROM ts_stat('SELECT tsv FROM documents";
 			if ( where != null && !where.isEmpty() )
 				sql += where;
-			sql += "')";
+			sql += "') WHERE nentry > 1 AND ndoc > 1";
 
 			Statement stmt = conn.createStatement();
 			ResultSet rs = stmt.executeQuery(sql);
@@ -550,11 +392,13 @@ public class DatabaseService {
 							new TypeReference<List<Map<String,Object>>>(){});
 					for(Map<String,Object> o : t){
 						String term = (String) o.get("word");
-						double freq = ((Integer) o.get("nentry")).doubleValue();
-						if ( normalize )
-							freq /= termsFreq.get(term);
-						int col = termsToColumnMap.get(term);
-						matrix.setQuick(doc, col, freq);
+						if ( termsToColumnMap.containsKey(term)){
+							double freq = ((Integer) o.get("nentry")).doubleValue();
+							if ( normalize )
+								freq /= termsFreq.get(term);
+							int col = termsToColumnMap.get(term);
+							matrix.setQuick(doc, col, freq);
+						}
 					}
 				}
 				++doc;
@@ -601,82 +445,32 @@ public class DatabaseService {
 
 	public DirectedGraph<Long,Long> getCitationGraph() throws Exception {
 
-//		final Map<Long, Integer> docIndexMap = getDocumentsIndexMapping();
-//		int n = docIndexMap.size();
+		//		final Map<Long, Integer> docIndexMap = getDocumentsIndexMapping();
+		//		int n = docIndexMap.size();
 
 		try ( Connection conn = db.getConnection();){
 			Statement stmt = conn.createStatement();
 			ResultSet rs = stmt.executeQuery("SELECT doc_id, ref_id FROM citations ORDER BY doc_id, ref_id");
-			
+
 			DirectedGraph<Long, Long> graph = new DirectedSparseGraph<>();
 			long e = 0;
 			while( rs.next() ){
 				long docId = rs.getLong(1);
 				long refId = rs.getLong(2);
 
-//				int source = docIndexMap.get(docId);
-//				int target = docIndexMap.get(refId);
+				//				int source = docIndexMap.get(docId);
+				//				int target = docIndexMap.get(refId);
 
 				if ( !graph.containsVertex(docId))
 					graph.addVertex(docId);
 				if ( !graph.containsVertex(refId))
-				graph.addVertex(refId);
-				
+					graph.addVertex(refId);
+
 				graph.addEdge(e, docId, refId);
 				++e;
 			}
 			return graph;
 
-		}catch( Exception e){
-			throw e;
-		}
-	}
-
-
-	public Map<Long, Integer> getDocumentsIndexMapping() throws Exception {
-		try ( Connection conn = db.getConnection();){
-			Statement stmt = conn.createStatement();
-			ResultSet rs = stmt.executeQuery(" SELECT row_number() OVER(order by doc_id) - 1, doc_id FROM documents "
-					+ "ORDER BY doc_id;");
-			Map<Long, Integer> map = new HashMap<>();
-			while( rs.next() ){
-				int index = rs.getInt(1);
-				long docId = rs.getLong(2);
-				map.put(docId, index);
-			}
-			return map;
-		}catch( Exception e){
-			throw e;
-		}
-	}
-
-	public Map<Long, List<Long>> getReferences(long[] docIds) throws Exception {
-		try ( Connection conn = db.getConnection();){
-			String sql = "SELECT doc_id, ref_id FROM citations";
-			if ( docIds != null ){
-				StringBuilder sb = new StringBuilder();
-				sb.append(docIds[0]);
-				for(int i = 1; i < docIds.length; i++){
-					sb.append(",");
-					sb.append(docIds[i]);
-				}
-				sql = sql + " WHERE doc_id IN(" + sb.toString() + ") AND ref_id IN(" + sb.toString() + ")";
-			}
-			Statement stmt = conn.createStatement();
-			ResultSet rs = stmt.executeQuery(sql.toString());
-
-			Map<Long, List<Long>> map = new HashMap<>();
-			while( rs.next() ){
-				long docId = rs.getInt(1);
-				long refId = rs.getLong(2);
-				List<Long> refs = map.get(docId);
-				if ( refs == null){
-					refs = new ArrayList<>();
-					map.put(docId, refs);
-				}
-				refs.add(refId);
-			}
-			return map;
 		}catch( Exception e){
 			throw e;
 		}
@@ -712,31 +506,6 @@ public class DatabaseService {
 				conn.close();
 		}
 
-	}
-
-	public String getOption(String op) throws Exception {
-		try ( Connection conn = db.getConnection();){
-			PreparedStatement stmt = conn.prepareStatement(GET_OPTION);
-			stmt.setString(1, op);
-			ResultSet rs = stmt.executeQuery();
-			while( rs.next() ){
-				return rs.getString(1);
-			}
-			return null;
-		}catch( Exception e){
-			throw e;
-		}
-	}
-
-	public void setOption(String op, String value) throws Exception {
-		try ( Connection conn = db.getConnection();){
-			PreparedStatement stmt = conn.prepareStatement(SET_OPTION);
-			stmt.setString(1, op);
-			stmt.setString(2, value);
-			stmt.executeUpdate();
-		}catch( Exception e){
-			throw e;
-		}
 	}
 
 	public static void main(String[] args) throws Exception {
