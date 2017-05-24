@@ -281,7 +281,9 @@ public class DocumentParserService {
 			parserService.addDocuments(args[0]);
 
 		} catch (Exception e) {
-			e.printStackTrace(System.err);
+			logger.error("Error adding documents", e);
+			System.err.println("Error adding documentos. See log for more details.");
+			System.exit(-1);
 		}
 	}
 }
