@@ -123,4 +123,17 @@ $documents_data_trigger$ LANGUAGE plpgsql;
 
 CREATE TRIGGER document_data_insert AFTER INSERT ON documents
 	FOR EACH ROW EXECUTE PROCEDURE documents_data();
-	
+
+CREATE OR REPLACE FUNCTION array_to_tsvector2(arr tsvector[]) RETURNS tsvector AS $array_to_tsvector2$
+	DECLARE
+		tsv tsvector := '';
+		e tsvector;
+	BEGIN
+		FOREACH e IN ARRAY arr
+		LOOP
+			tsv := tsv || e;
+		END LOOP;
+		
+		RETURN tsv;
+	END;
+$array_to_tsvector2$ LANGUAGE plpgsql;
