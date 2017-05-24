@@ -30,16 +30,54 @@ import cern.colt.matrix.linalg.Algebra;
 import cern.colt.matrix.linalg.SingularValueDecomposition;
 import cern.jet.math.Functions;
 
+/**
+ * Implmentação do algoritmo LAMP para
+ * projeção multidimensional.
+ * <a href="http://ieeexplore.ieee.org/xpls/abs_all.jsp?arnumber=6065024">
+ * http://ieeexplore.ieee.org/xpls/abs_all.jsp?arnumber=6065024</a> 
+ * <i>(P.Joia, F.V Paulovich, D.Coimbra, J.A.Cuminato, & L.G.Nonato)</i>
+ * @version 1.0
+ * @since 2017
+ *
+ */
 public class Lamp {
 
+	/**
+	 * Tolerância mínima padrão
+	 */
 	private static final double TOL = 1e-6;
 
+	/**
+	 * Gerador aleatório.
+	 */
 	private final Random rng;
 
+	/**
+	 * Cria uma novo objeto para projeção multidimensional,
+	 * inicialize gerador aleatório.
+	 */
 	public Lamp() {
+		this(0);
+	}
+	
+	/**
+	 * Cria um novo objeto para projeção multidimensional,
+	 * inicializando o gerador aletória com a semente
+	 * dada. 
+	 * @param seed semente do gerador aleatório.
+	 */
+	public Lamp(long seed) {
 		rng = new Random();
+		if (seed > 0)
+			rng.setSeed(seed);
 	}
 
+	/**
+	 * Realiza projeção multidimensional para a matriz
+	 * informada.
+	 * @param x matriz com valores a serem projetados (N x M).
+	 * @return matriz de projeção multimensional (N x 2).
+	 */
 	public DoubleMatrix2D project(DoubleMatrix2D x){
 		DoubleMatrix2D xs, ys;
 
@@ -51,6 +89,7 @@ public class Lamp {
 			sample.add(next);
 		}
 
+		// Salva control points em vetor de inteiros.
 		int[] cpoints = new int[n];
 		Iterator<Integer> iter = sample.iterator();
 		for(int j = 0; j < n && iter.hasNext(); j++){
@@ -66,8 +105,18 @@ public class Lamp {
 		return project(x, cpoints, ys);
 	}
 
+	/**
+	 * Realiza projeção multidimensional para a matriz informada.
+	 * @param x matriz com valores a serem projetados (N x M).
+	 * @param cpoints índices dos pontos de controle na matriz <code>x</code>
+	 * a serem utilizados na projeção.
+	 * @param ys projeção muldimensional para os pontos de controle 
+	 * (<code>cpoints.length</code> x 2). 
+	 * @return
+	 */
 	public DoubleMatrix2D project(DoubleMatrix2D x, int[] cpoints, DoubleMatrix2D ys){
 
+		// Seleciona valores dos pontos de controle
 		DoubleMatrix2D xs = x.viewSelection(cpoints, null).copy();
 
 		int ninst = x.rows(),
@@ -82,15 +131,16 @@ public class Lamp {
 		DoubleMatrix2D Y = DoubleFactory2D.sparse.make(ninst, p, 0.0);
 
 		for (int pt = 0; pt < ninst; pt++){
-			// Computes alphas
+			// Calcula dos alfas
 			DoubleMatrix1D alpha = DoubleFactory1D.sparse.make(k, 0.0);
 			boolean skip = false;
 			for( int i = 0; i < k; i++){
-				// Verify if the point to be projected is a control point
-				// avoids division by zero
+				// Verifica se o ponto a ser projetado é um ponto de controle
+				// para evitar divisão por zero.
 				double norm2 = alg.norm2( xs.viewRow(i).copy().assign(x.viewRow(pt), Functions.minus)); 
 				if ( norm2 < TOL ){
-					// point is too close to sample point; position them equally
+					// ponto muito próximo ao ponto amostrado
+					// posicionando de forma similar.
 					Y.viewRow(pt).assign(ys.viewRow(i));
 					skip = true;
 					break;
@@ -104,7 +154,7 @@ public class Lamp {
 
 			double alphaSum = alpha.zSum();
 
-			// Computes x~ and y~ (eq. 3)
+			// Computa x~ e y~ (eq. 3)
 			DoubleMatrix1D xtilde = DoubleFactory1D.dense.make(dim, 0.0);
 			DoubleMatrix1D ytilde = DoubleFactory1D.dense.make(p, 0.0);
 
@@ -113,7 +163,7 @@ public class Lamp {
 
 			DoubleMatrix2D xhat = xs.copy(), yhat = ys.copy();
 
-			// Computation of x^ and y^ (eq. 6)
+			// Computa x^ e y^ (eq. 6)
 			for( int i = 0; i < xs.rows(); i++){
 				xhat.viewRow(i).assign(xtilde, Functions.minus);
 				yhat.viewRow(i).assign(ytilde, Functions.minus);
@@ -207,7 +257,5 @@ public class Lamp {
 		frame.pack();
 		RefineryUtilities.centerFrameOnScreen(frame);
 		frame.setVisible(true);
-
 	}
-
 }

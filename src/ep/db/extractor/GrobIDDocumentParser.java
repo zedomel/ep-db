@@ -16,17 +16,18 @@ import ep.db.model.Author;
 import ep.db.model.Document;
 
 /**
- * GROBID document parser.
  * Classe para processar documentos (artigos cientificos)
  * utilizando GROBID.
- * @author jose
+ * @version 1.0
+ * @since 2017
  *
  */
 public final class GrobIDDocumentParser implements DocumentParser{
 
-	private static Engine ENGINE;
-
-	private Engine engine;
+	/**
+	 * GROBID engine (singleton)
+	 */
+	private static Engine engine;
 
 	private BiblioItem metadata;
 
@@ -43,17 +44,19 @@ public final class GrobIDDocumentParser implements DocumentParser{
 	}
 
 	/**
-	 * Cria um novo {@link GrobIDDocumentParser} (singleton)
-	 * @param consolidate: the consolidation option allows GROBID to 
-	 * exploit Crossref web services for improving header information
-	 * @throws Exception se uma exceção ocorrer ao carregar GROBID
+	 * Cria um novo processador {@link GrobIDDocumentParser} (singleton)
+	 * <p>Somente uma instância da ENGINE do GrobID deve existir durante a
+	 * execução do programa. Por isto, diferentes objetos desta classe irão
+	 * compartilhar mesma ENGINE.</p>
+	 * @param consolidate: opção de consolidação permite ao GROBID consultar
+	 * CrossRef para melhorar informação extraída.
+	 * @throws Exception se um erro ocorrer ao inicializar GROBID
 	 */
 	public GrobIDDocumentParser(String grobidHome, String grobidProperties, boolean consolidate) throws Exception {
 		this.consolidate = consolidate;
 		this.grobidHome = grobidHome;
 		this.grobidProperties = grobidProperties;
 		initialize();
-		engine = ENGINE;
 	}
 
 	/**
@@ -67,7 +70,7 @@ public final class GrobIDDocumentParser implements DocumentParser{
 			throw e1;
 		}
 		GrobidProperties.getInstance();	
-		ENGINE = GrobidFactory.getInstance().createEngine();
+		engine = GrobidFactory.getInstance().createEngine();
 	}
 
 	/**
@@ -107,11 +110,6 @@ public final class GrobIDDocumentParser implements DocumentParser{
 	}
 
 	@Override
-	public String getAffiliation() {
-		return metadata.getAffiliation();
-	}
-
-	@Override
 	public String getDOI() {
 		return metadata.getDOI();
 	}
@@ -128,13 +126,9 @@ public final class GrobIDDocumentParser implements DocumentParser{
 	}
 
 	@Override
-	public String getJournal() {
-		return metadata.getJournal();
-	}
-
-	@Override
 	public String getKeywords() {
 		if (metadata.getKeywords() != null )
+			//Concatena palavras-chaves separando as com ','
 			return metadata.getKeywords().stream().map(s -> s.getKeyword().toString()).collect(Collectors.joining(", "));
 		return null;
 	}

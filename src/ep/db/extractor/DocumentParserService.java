@@ -22,39 +22,66 @@ import ep.db.model.Document;
 
 /**
  * Classe principal para processamento dos documentos
- * adicionando os ao banco de dados.
- * @author jose
+ * adicionando-os ao banco de dados.
+ * @version 1.0
+ * @since 2017
  *
  */
 public class DocumentParserService {
 
 	private static final String PROP_FILE = "config.properties";
+	
+	/**
+	 * Diretório temporário
+	 */
+	private static final String TMP_DIR = System.getProperty("java.io.tmpdir");
 
-	private Logger logger = Logger.getLogger(DocumentParserService.class);
+	/**
+	 * Logger
+	 */
+	private static Logger logger = Logger.getLogger(DocumentParserService.class);
 
 	/**
 	 * Document Parser
 	 */
 	private DocumentParser documentParser;
 
+	/**
+	 * Serviço de manipulação do banco de dados.
+	 */
 	private DatabaseService dbService;
 
-	private String TMP_DIR = System.getProperty("java.io.tmpdir");
-
+	/**
+	 * Cria um novo objecto {@link DocumentParserService} para 
+	 * serviço de processamento de documentos.
+	 * @param parser {@link DocumentParser} a ser utilizado para processamento
+	 * do documentos (atualmente somente {@link GrobIDDocumentParser} disponível).
+	 * @param config configuração
+	 * @throws IOException erro ao inicializar {@link DocumentParser}.
+	 */
 	public DocumentParserService( DocumentParser parser, Properties config ) throws IOException{
 		this.documentParser = parser;
 		this.dbService = new DatabaseService(config);
 	}
 
+	/**
+	 * Adiciona documentos a partir de um arquivo ZIP.
+	 * @param packageFile arquivo zip.
+	 * @return lista com caminhos absolutos para os documentos 
+	 * extraídos e adicinados ao banco de dados.
+	 * @throws Exception erro ao adicionar arquivos.
+	 */
 	public List<String> addDocumentsFromPackage(File packageFile) throws Exception{
 
 		byte[] buffer = new byte[1024];
 		final String output = TMP_DIR + File.separator + packageFile.getName() + "_" + System.nanoTime();
 		File outputDir = new File(output);
+		// Cria diretório para extrair arquivo zip
 		if ( !outputDir.mkdirs() )
-			return null; //TODO should throw an error here!
+			throw new IOException("Can't create output directory: "+outputDir.getAbsolutePath());
 
 		List<String> documents = new ArrayList<>();
+		// Extrai documentos PDF do arquivo ZIP e salva em diretório temporário
 		try ( ZipInputStream zis = new ZipInputStream(new FileInputStream(packageFile));){
 			ZipEntry entry = zis.getNextEntry();
 
@@ -71,8 +98,7 @@ public class DocumentParserService {
 						fos.write(buffer, 0, len);
 					}
 				}catch (Exception e) {
-					// TODO: handle exception
-					e.printStackTrace();
+					logger.error("I/O error from ZIP file, writing to: " + newFile.getAbsolutePath(), e);
 					continue;
 				}
 
@@ -80,22 +106,21 @@ public class DocumentParserService {
 				entry = zis.getNextEntry();
 			}
 		}catch (Exception e) {
-			// TODO: handle exception
+			logger.error("Error reading from ZIP file: " + packageFile.getAbsolutePath(), e);
 			throw e;
 		}
 
+		// Adiciona documentos PDF ao banco de dados
 		addDocuments(outputDir.getAbsolutePath());
 		return documents;
 	}
 
 	/**
-	 * Import all document in given directory to the index and
-	 * also create Neo4j nodes.
-	 * Initially all imported documents have citation count 1 (one)
-	 * then {@link #updateCitations(DatabaseHelper, Document)} is called
-	 * to update citation count fields.
-	 * @param docsDir directory contains PDF documents.
-	 * @throws IOException a error occurs when indexing documents.
+	 * Adiciona todos os documentos com extensão .pdf presentes
+	 * no diretório dado ao banco de dados.
+	 * @param docsDir caminho completo para o diretório que contém documentos
+	 * a serem adicionados.
+	 * @throws IOException erro ao importar documentos.
 	 */
 	public void addDocuments(String docsDir) throws IOException
 	{
@@ -108,6 +133,7 @@ public class DocumentParserService {
 				if ( matcher.matches(path)){
 					System.out.println(path);
 					try {
+						// Adiciona documento
 						addDocument(path.toFile().getAbsolutePath());
 					} catch (Exception e) {
 						logger.error("Error importing document: "+path.toAbsolutePath(), e);
@@ -121,26 +147,28 @@ public class DocumentParserService {
 	}
 
 	/**
-	 * Adds a new document to index
-	 * @param docPath the full path to the document
-	 * to be inserted
-	 * @throws Exception error adding to index.
+	 * Processa e adiciona um documento ao banco de dados.
+	 * @param docPath caminho completo para o documento a ser
+	 * adicionado.
+	 * @throws Exception erro ao processar/adicionar documento.
 	 */
 	public void addDocument(String docPath) throws Exception
 	{
 		File file = new File(docPath);
 		try {
+			// Processa documento utilizando DocumentParser
 			Document doc = parseDocument(file);
 			if (doc != null){
-				// Write document to the Index
+				// Em caso de sucesso, adiciona ao banco de dados
 				long docId = dbService.addDocument(doc);
 				if ( docId > 0){
+					// Processa referências do documento recém adicionado
 					List<Document> references = parseReferences(file, doc);
 					if ( references != null && ! references.isEmpty() ){
+						//Adicona referências ao banco de dados.
 						dbService.addReferences(docId, references);
 					}
 				}
-
 			}
 		}catch(Exception e){
 			throw e;
@@ -148,9 +176,9 @@ public class DocumentParserService {
 	}
 
 	/**
-	 * Removes a document from the Index.
-	 * @param id the id of the document to remove (Neo4j node id).
-	 * @throws Exception if any error occurs when removing the document.
+	 * Deleta documento do banco de dados.
+	 * @param id id do documento a ser removido. 
+	 * @throws Exception erro ao remover documento.
 	 */
 	public void removeDocument(long id) throws Exception{
 		try{
@@ -162,28 +190,54 @@ public class DocumentParserService {
 	}
 
 	/**
-	 * Parses a document and creates a {@link Document} object
-	 * to be inserted into Lucene index.
-	 * @param filename the full filename of the document to be parsed
-	 * @return a new Document to be added to the index
-	 * @throws IOException if can't parse the document
+	 * Processa documento data utilizando {@link DocumentParser}
+	 * @param filename arquivo a ser processado
+	 * @return documento extraído a partir do arquivo dado.
+	 * @throws Exception erro ao processar documento.
 	 */
 	private Document parseDocument(File filename) throws Exception 
 	{
-		Document doc = null;
 		try {
 			// Processa documento utilizando os
 			// parsers registrados: extrai dados
 			// do cabeçalho e referências.
-			doc = parseDocument(filename.getAbsolutePath());
+			this.documentParser.parseHeader(filename.getAbsolutePath());
+
+			String title = documentParser.getTitle();
+			List<Author> authors = documentParser.getAuthors();
+			String doi = documentParser.getDOI();
+
+			if ( (title == null || authors == null) && doi == null )
+				throw new Exception("Document has no title, authors or DOI");
+
+			Document doc = new Document();
+			doc.setTitle(title);
+			doc.setAuthors(authors);
+			doc.setDOI(doi);
+			doc.setKeywords(documentParser.getKeywords());
+			doc.setAbstract(documentParser.getAbstract());
+			doc.setContainer(documentParser.getContainer());
+			doc.setISSN(documentParser.getISSN());
+			doc.setIssue(documentParser.getIssue());
+			doc.setPages(documentParser.getPages());
+			doc.setVolume(documentParser.getVolume());
+			doc.setPublicationDate(documentParser.getPublicationDate());
+			doc.setLanguage(documentParser.getLanguage());
+
+			return doc;
 		} catch (Exception e) {
 			logger.error("Error extracting document's information: " + filename, e);
 			return null;
 		}
 
-		return doc;
 	}
 
+	/**
+	 * Processa referência do documento dado.
+	 * @param docFile arquivo a ser processado.
+	 * @param doc documento extraído a partir do arquivo dado.
+	 * @return lista de documento citados.
+	 */
 	private List<Document> parseReferences(File docFile, Document doc) {
 		try {
 			documentParser.parseReferences(docFile.getAbsolutePath());
@@ -195,50 +249,20 @@ public class DocumentParserService {
 		return documentParser.getReferences(); 
 	}
 
-	/**
-	 * Process document using registered {@link DocumentParser}: extracts header data.
-	 * @param filename path to the document's file
-	 * @return 
-	 * @return 
-	 * @throws Exception if any error occurs extracting data.
-	 */
-	private Document parseDocument(String filename) throws Exception {
-
-		// Parse document
-		this.documentParser.parseHeader(filename);
-
-		String title = documentParser.getTitle();
-		List<Author> authors = documentParser.getAuthors();
-		String doi = documentParser.getDOI();
-
-		if ( (title == null || authors == null) && doi == null )
-			throw new Exception("Document has no title, authors or DOI");
-
-		Document doc = new Document();
-		doc.setTitle(title);
-		doc.setAuthors(authors);
-		doc.setDOI(doi);
-		doc.setKeywords(documentParser.getKeywords());
-		doc.setAbstract(documentParser.getAbstract());
-		doc.setContainer(documentParser.getContainer());
-		doc.setISSN(documentParser.getISSN());
-		doc.setIssue(documentParser.getIssue());
-		doc.setPages(documentParser.getPages());
-		doc.setVolume(documentParser.getVolume());
-		doc.setPublicationDate(documentParser.getPublicationDate());
-		doc.setLanguage(documentParser.getLanguage());
-
-		return doc;
-	}
-
 	@Override
 	protected void finalize() throws Throwable {
 		super.finalize();
+		//Encerre GROBID se registrado como DocumentParser
 		if ( documentParser instanceof GrobIDDocumentParser){
 			MockContext.destroyInitialContext();
 		}
 	}
 
+	/**
+	 * Método principal para adição de novo documentos
+	 * @param args
+	 * @throws Exception
+	 */
 	public static void main(String[] args) throws Exception {
 
 		if ( args.length != 1){

@@ -1,64 +1,88 @@
 package ep.db.mdp;
 
-import java.io.BufferedWriter;
-import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileWriter;
 import java.util.Properties;
+
+import org.apache.log4j.Logger;
 
 import cern.colt.matrix.DoubleMatrix2D;
 import ep.db.database.DatabaseService;
 
+/**
+ * Classe para realizar projeção multidimensional
+ * utilizando {@link Lamp}.
+ * @version 1.0
+ * @since 2017
+ *
+ */
 public class MultidimensionalProjection {
 
+	/**
+	 * Arquivo de configuração
+	 */
 	private static final String PROP_FILE = "config.properties";
 	
+	/**
+	 * Logger
+	 */
+	private static Logger logger = Logger.getLogger(MultidimensionalProjection.class);
+	
+	/**
+	 * Serviço para manipulação do banco de dados.
+	 */
 	private DatabaseService dbService;
 
+	/**
+	 * Cria novo objeto para projeção multidimensional
+	 * com a configuração dada.
+	 * @param config configuração.
+	 */
 	public MultidimensionalProjection( Properties config ) {
 		this.dbService = new DatabaseService(config);
 	}
 
-	public void project() {
+	/**
+	 * Realiza projeção multidimensional dos documentos
+	 * no banco de dados.
+	 * @throws Exception erro ao realizar projeção.
+	 */
+	public void project() throws Exception {
 
-		// Constroi matriz de frequencia de termos
+		// Constroi matriz de frequência de termos
 		DoubleMatrix2D matrix = null;
 		try {
 			 matrix = dbService.buildFrequencyMatrix(null);
 		} catch (Exception e) {
-			// TODO Log-me
-			e.printStackTrace();
+			logger.error("Error building frequency matrix", e);
+			throw e;
 		}
 
-		File csv = new File("bag_of_words_small.csv");
-		try (BufferedWriter bw = new BufferedWriter(new FileWriter(csv))){
-			
-			for(int i = 0; i < matrix.rows(); i++){
-				bw.write(String.format("%f", matrix.getQuick(i, 0)));
-				for(int j = 1; j < matrix.columns(); j++)
-					bw.write(String.format(",%f", matrix.getQuick(i, j)));
-				bw.newLine();
-			}
-			
-		}catch (Exception e) {
-			// TODO: handle exception
-		}
-		// Realiza projeção multidimensional
+		// Realiza projeção multidimensional utilizando LAMP
 		Lamp lamp = new Lamp();
 		DoubleMatrix2D y = lamp.project(matrix);
 		
+		// Atualiza projeções no banco de dados.
 		updateProjections(y);
 	}
 	
-	private void updateProjections(DoubleMatrix2D y) {
+	/**
+	 * Atualiza projeções no banco de dados.
+	 * @param y
+	 * @throws Exception 
+	 */
+	private void updateProjections(DoubleMatrix2D y) throws Exception {
 		try {
 			dbService.updateXYProjections(y);
 		} catch (Exception e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+			logger.error("Error updating projections in database", e);
+			throw e;
 		}
 	}
 	
+	/**
+	 * Método main para calcúlo das projeções.
+	 * @param args
+	 */
 	public static void main(String[] args) {
 		try {
 			Properties properties = new Properties();

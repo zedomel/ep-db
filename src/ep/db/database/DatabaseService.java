@@ -1,6 +1,5 @@
 package ep.db.database;
 
-import java.io.FileInputStream;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -26,15 +25,27 @@ import ep.db.extractor.Utils;
 import ep.db.model.Author;
 import ep.db.model.Document;
 
+/**
+ * Provedor de serviços com o banco de dados.
+ * Inclui métodos para manipulação do banco: 
+ * inserções, deleções, atualizações e consultas.
+ * Todo o CRUD está concentrado nessa classe. 
+ * @version 1.0
+ * @since 2017
+ */
 public class DatabaseService {
 
-	private static final String PROP_FILE = "config.properties";
-
+	/**
+	 * SQL para recuperar grafo de citações
+	 */
 	private static final String GRAPH_SQL = "with nodes as (select row_number() over(order by doc_id ) as row_number, "
 			+ "doc_id n from documents) "
 			+ "select doc_id as source,row_number as target from citations c "
 			+ "inner join nodes ON c.ref_id = nodes.n order by doc_id, row_number";
 
+	/**
+	 * SQL para inserção de um novo documento
+	 */
 	private static final String INSERT_DOC = "INSERT INTO documents AS d (title, doi, keywords, abstract, "
 			+ "publication_date, volume, pages, issue, container, container_issn, language ) "
 			+ "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::regconfig) ON CONFLICT (doi) DO UPDATE "
@@ -49,31 +60,64 @@ public class DatabaseService {
 			+ "container_issn = coalesce(d.container_issn, excluded.container_issn), "
 			+ "language = coalesce(d.language, excluded.language) ";
 
+	/**
+	 * SQL para inserção de novo autor
+	 */
 	private static final String INSERT_AUTHOR = "INSERT INTO authors as a (aut_name) "
 			+ "VALUES (?) ON CONFLICT (aut_name) DO UPDATE "
 			+ "SET aut_name = coalesce(a.aut_name,excluded.aut_name); ";
 
+	/**
+	 * SQL para inserção de relação entre documento-autor
+	 */
 	private static final String INSERT_DOC_AUTHOR = "INSERT INTO document_authors as a (doc_id,aut_id) VALUES(?,?) "
 			+ "ON CONFLICT DO NOTHING";
 
+	/**
+	 * SQL para inserção de citações
+	 */
 	private static final String INSERT_REFERENCE = "INSERT INTO citations(doc_id, ref_id) VALUES (?, ?) "
 			+ "ON CONFLICT DO NOTHING";
 
+	/**
+	 * SQL para remoção de documento
+	 */
 	private static final String DELETE_DOC = "DELETE FROM documents WHERE doc_id = ?";
 
+	/**
+	 * SQL para atualização das coordenadas X,Y resultantes de projeção multidimensional
+	 */
 	private static final String UPDATE_XY = "UPDATE documents_data SET x = ?, y = ? WHERE doc_id = ?";
 
+	/**
+	 * SQL para atualização da relevancia de um documento
+	 */
 	private static final String UPDATE_RELEVANCE = "UPDATE documents_data SET relevance = ? WHERE doc_id = ?";
 
+	/**
+	 * Data source
+	 */
 	private Database db;
 
+	/**
+	 * Tamanho do batch (para inserções)
+	 */
 	private final int batchSize;
 
+	/**
+	 * Cria um novo serviço para manipulação do banco de dados
+	 * @param config configuração
+	 */
 	public DatabaseService(Properties config) {
 		this.db = new Database(config);
 		this.batchSize = Integer.parseInt(config.getProperty("db.batch_size", "100"));
 	}
 
+	/**
+	 * Retorna o número total de documentos na base.
+	 * @return inteiro com número total de documentos.
+	 * @throws Exception erro ao executar consulta.
+	 */
 	public int getNumberOfDocuments() throws Exception {
 		try ( Connection conn = db.getConnection();){
 			Statement stmt = conn.createStatement();
@@ -87,16 +131,24 @@ public class DatabaseService {
 		}
 	}
 
+	/**
+	 * Retorna matrix de adjacência para o grafo de
+	 * citações.
+	 * @return matrix de adjacência N x N, onde N é 
+	 * o número total de documentos na base.
+	 * @see {@link #getNumberOfDocuments()}. 
+	 * @throws Exception erro ao executar consulta.
+	 */
 	public DoubleMatrix2D getGraph() throws Exception{
 		try ( Connection conn = db.getConnection();){
+			
 			// Recupera numero de citacoes para pre-alocacao
 			// da matriz de adjacencia.
 			int size = getNumberOfDocuments();
 			if ( size == 0)
 				return null;
 
-			// Recupera citacoes para construção do 
-			// grafo
+			// Recupera citacoes para construção do grafo
 			PreparedStatement stmt = conn.prepareStatement(GRAPH_SQL);
 			try (ResultSet rs = stmt.executeQuery()){
 				DoubleMatrix2D graph = new SparseDoubleMatrix2D(size,size);
@@ -105,8 +157,12 @@ public class DatabaseService {
 				int i = 0;
 				long lastSource = 0;
 				while ( rs.next() ){
+					//indices dos nós source e target
 					long source = rs.getLong(1);
 					int target = rs.getInt(2);
+					
+					//incrementa indice das linhas caso 
+					// source tenha alterado
 					if ( lastSource != i)
 						++i;
 					graph.set(i, target-1, 1.0);
@@ -124,7 +180,17 @@ public class DatabaseService {
 		}
 	}
 
+	/**
+	 * Retorna matrix de frequência de todos os termos presentes
+	 * nos documentos especificados.
+	 * @param docIds id's dos documentos considerados para obtenção dos termos ou 
+	 * <code>null</code> para recuperar termos de todos os documentos. 
+	 * @return matrix N x M onde N é o número de documentos e M o número de
+	 * termos.
+	 * @throws Exception erro ao executar consulta.
+	 */
 	public DoubleMatrix2D buildFrequencyMatrix(long[] docIds) throws Exception {
+		
 		// Retorna numero de documentos e ocorrencia total dos termos
 		int numberOfDocuments;
 		if ( docIds == null )
@@ -145,10 +211,12 @@ public class DatabaseService {
 		}
 
 		String where = sql.toString();
+		
+		// Recupera frequencia indiviual de cada termo
 		final Map<String, Integer> termsFreq = getTermsFrequency(where);
-		final Map<String, Integer> termsToColumnMap = new HashMap<>();
 
 		// Mapeamento termo -> coluna na matriz (bag of words)
+		final Map<String, Integer> termsToColumnMap = new HashMap<>();
 		int c = 0;
 		for(String key : termsFreq.keySet()){
 			termsToColumnMap.put(key, c);
@@ -163,6 +231,13 @@ public class DatabaseService {
 		return matrix;
 	}
 
+	/**
+	 * Insere novo documento ao banco de dados ou atualiza campos
+	 * caso já exista na base documento com mesmo DOI.
+	 * @param doc documento a ser inserido.
+	 * @return id do novo documento.
+	 * @throws Exception erro ao executar inserção.
+	 */
 	public long addDocument(Document doc) throws Exception {
 		long docId = -1;
 		try ( Connection conn = db.getConnection();){
@@ -188,6 +263,9 @@ public class DatabaseService {
 			throw e;
 		}
 
+		// Em caso de succeso, insere autores na
+		// tabela authors e também atribui ao documento
+		// seus autores na tabela document_authors
 		if ( docId > 0 ){
 			addAuthors(Arrays.asList(doc));
 			addDocumetAuthors(Arrays.asList(doc));
@@ -196,6 +274,17 @@ public class DatabaseService {
 		return docId;
 	}
 
+	/**
+	 * Insere todos os documentos da lista dada no bando de dados, 
+	 * atualizando campos caso já exista algum documento com mesmo DOI.
+	 * <p>Para inserção de multiplos documentos esse método é mais eficiente do que
+	 * multiplas chamadas do método {@link #addDocument(Document)} uma vez que realiza
+	 * inserção em batch.</p>
+	 * @param documents documentos a serem inseridos.
+	 * @return vetor com id dos documentos inseridos (excluidos os id's dos documentos
+	 * atualizados).
+	 * @throws Exception
+	 */
 	public long[] addDocuments(List<Document> documents) throws Exception {
 		List<Long> docIds = new ArrayList<>();
 
@@ -242,6 +331,14 @@ public class DatabaseService {
 		return docIds.stream().mapToLong(l->l).toArray();
 	}
 
+	/**
+	 * Adiciona autores dos documentos dados no banco de dados
+	 * @param documents documentos para quais os autores devem ser inseridos
+	 * ou atualizados no banco de dados.
+	 * @return id's do autores corretamente inseridos (excluídos id's dos registros
+	 * atualizados).
+	 * @throws Exception erro ao executar inserção.
+	 */
 	private long[] addAuthors(List<Document> documents) throws Exception {
 		try ( Connection conn = db.getConnection();){
 			PreparedStatement stmt = conn.prepareStatement(INSERT_AUTHOR, Statement.RETURN_GENERATED_KEYS);
@@ -279,6 +376,12 @@ public class DatabaseService {
 		}
 	}
 
+	/**
+	 * Adiciona ligação entre documento e autor no banco de dados.
+	 * @param docs documentos para quais as ligações documento-autor serão
+	 * inseridas.
+	 * @throws Exception erro ao executar inserção.
+	 */
 	private void addDocumetAuthors(List<Document> docs) throws Exception {
 		try ( Connection conn = db.getConnection();){
 			PreparedStatement stmt = conn.prepareStatement(INSERT_DOC_AUTHOR, Statement.RETURN_GENERATED_KEYS);
@@ -301,13 +404,24 @@ public class DatabaseService {
 		}
 	}
 
+	/**
+	 * Insere na lista dada (ids) os id's gerados automaticamente
+	 * pelo banco de dados.
+	 * @param ids lista com id's gerados automaticamente.
+	 * @param generatedKeys {@link ResultSet} resultante da inserção.
+	 * @throws SQLException erro ao recuperar id's do {@link ResultSet}.
+	 */
 	private void getGeneratedKeys(List<Long> ids, ResultSet generatedKeys) throws SQLException {
 		while (generatedKeys.next()){
 			ids.add(generatedKeys.getLong(1));
 		}
 	}
 
-	//TODO: change argument to int type
+	/**
+	 * Remove documento da base de dados.
+	 * @param id id do documento a ser removido.
+	 * @throws Exception erro ao executar remoção.
+	 */
 	public void deleteDocument(long id) throws Exception {
 		try ( Connection conn = db.getConnection();){
 			PreparedStatement stmt = conn.prepareStatement(DELETE_DOC);
@@ -318,9 +432,20 @@ public class DatabaseService {
 		}
 	}
 
+	/**
+	 * Adiciona uma referência ao banco de dados.
+	 * <p>Este método irá adicionar o documento de referência
+	 * caso não exista no bando de dados e adicionar citação
+	 * docId -> ref</p>
+	 * @param docId id do documento que faz a citação.
+	 * @param ref documento citado.
+	 * @throws Exception erro ao executar inserção.
+	 */
 	public void addReference(long docId, Document ref) throws Exception {
+		//Insere referencia do banco de dados
 		long refId = addDocument(ref);
 		if ( refId > 0){
+			// Em caso de sucesso, adiciona citação
 			try ( Connection conn = db.getConnection();){
 				PreparedStatement stmt = conn.prepareStatement(INSERT_REFERENCE);
 				stmt.setLong(1, docId);
@@ -332,6 +457,12 @@ public class DatabaseService {
 		}
 	}
 
+	/**
+	 * Adiciona todos as referência de um documento ao banco de dados. 
+	 * @param docId id do documento que faz a citação
+	 * @param refs documentos citados. 
+	 * @throws Exception erro ao executar inserção.
+	 */
 	public void addReferences(long docId, List<Document> refs) throws Exception {
 		long[] refIds = addDocuments(refs);
 		try ( Connection conn = db.getConnection();){
@@ -349,6 +480,15 @@ public class DatabaseService {
 		}
 	}
 
+	/**
+	 * Retorna mapa com frequência individual de cada termo com ocorrência
+	 * maior que 1 (zero), ou seja, termos que tenham ocorrido em pelo menos
+	 * dois documentos.
+	 * @param where parte da consultam em SQL indicando id's do documentos a serem
+	 * considerados ou <code>null</code> para todos os documentos.
+	 * @return mapa de termos ordenados pela frequência absoluta.
+	 * @throws Exception
+	 */
 	private TreeMap<String, Integer> getTermsFrequency(String where) throws Exception {
 		try ( Connection conn = db.getConnection();){
 
@@ -372,7 +512,17 @@ public class DatabaseService {
 		}
 	}
 
-	public void buildFrequencyMatrix(DoubleMatrix2D matrix, Map<String, Integer> termsFreq,
+	/**
+	 * Constroi matrix de frequência de termos (bag of words). 
+	 * @param matrix matrix de frequência de termos já inicializada
+	 * @param termsFreq mapa com os termos ordenados por frequência. 
+	 * @param termsToColumnMap mapa de termos para indice da coluna na matrix de frequência.
+	 * @param where clause WHERE em SQL para filtragem de documentos por id's.
+	 * @param normalize se <code>true</code> a frequência de cada termo será normalizada,
+	 * caso contrário a frequência absoluta é considerada.
+	 * @throws Exception erro ao executar consulta.
+	 */
+	private void buildFrequencyMatrix(DoubleMatrix2D matrix, Map<String, Integer> termsFreq,
 			Map<String, Integer> termsToColumnMap, String where, boolean normalize) throws Exception {
 		try ( Connection conn = db.getConnection();){
 
@@ -408,6 +558,12 @@ public class DatabaseService {
 		}
 	}
 
+	/**
+	 * Atualiza projeção dos documentos
+	 * @param y matrix de projeção N x 2, onde N é o 
+	 * número de documentos.
+	 * @throws Exception erro ao executar atualização.
+	 */
 	public void updateXYProjections(DoubleMatrix2D y) throws Exception {
 		Connection conn = null;
 		try { 
@@ -443,10 +599,12 @@ public class DatabaseService {
 		}
 	}
 
+	/**
+	 * Retorna grafo de citação
+	 * @return grafo direcionado com citações.
+	 * @throws Exception erro ao executar consulta.
+	 */
 	public DirectedGraph<Long,Long> getCitationGraph() throws Exception {
-
-		//		final Map<Long, Integer> docIndexMap = getDocumentsIndexMapping();
-		//		int n = docIndexMap.size();
 
 		try ( Connection conn = db.getConnection();){
 			Statement stmt = conn.createStatement();
@@ -457,9 +615,6 @@ public class DatabaseService {
 			while( rs.next() ){
 				long docId = rs.getLong(1);
 				long refId = rs.getLong(2);
-
-				//				int source = docIndexMap.get(docId);
-				//				int target = docIndexMap.get(refId);
 
 				if ( !graph.containsVertex(docId))
 					graph.addVertex(docId);
@@ -476,6 +631,12 @@ public class DatabaseService {
 		}
 	}
 
+	/**
+	 * Atualiza relevância dos documentos.
+	 * @param graph grafo de citações.
+	 * @param pageRank relevância dos documentos (pagerank).
+	 * @throws Exception erro ao executar atualização.
+	 */
 	public void updatePageRank(DirectedGraph<Long, Long> graph, PageRank<Long,Long> pageRank) throws Exception {
 		Connection conn = null;
 		try { 
@@ -505,38 +666,5 @@ public class DatabaseService {
 			if ( conn != null )
 				conn.close();
 		}
-
-	}
-
-	public static void main(String[] args) throws Exception {
-
-		Properties properties = new Properties();
-		properties.load(new FileInputStream(PROP_FILE));
-
-		Database db = new Database(properties);
-		db.getConnection();
-
-		DatabaseService ss = new DatabaseService(properties);
-
-		//		DoubleMatrix2D graph = ss.getGraph();
-		//		for(int i = 0; i < graph.rows(); i++){
-		//			for(int j = 0; j < graph.columns(); j++)
-		//				System.out.print(String.format("%d ", (int) graph.getQuick(i, j)));
-		//			System.out.println();
-		//		}
-
-		int ndocs = ss.getNumberOfDocuments();
-
-		String where = " WHERE doc_id IN (1,2,3)";
-		TreeMap<String, Integer> termsFreq = ss.getTermsFrequency(where);
-		final Map<String, Integer> termsToColumnMap = new HashMap<>();
-		int c = 0;
-		for(String key : termsFreq.keySet()){
-			termsToColumnMap.put(key, c);
-			++c;
-		}
-		DoubleMatrix2D matrix = new SparseDoubleMatrix2D(ndocs, termsFreq.size());
-		ss.buildFrequencyMatrix(matrix, termsFreq, termsToColumnMap, where, true);
-		System.out.println(matrix.toStringShort());
 	}
 }
