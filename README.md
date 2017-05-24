@@ -40,6 +40,14 @@ psql -U <db.user> -W -f db/database-schema.sql <db.database>
 ..* <db.database>: mesmo valor encontrado no arquivo ``config.properties``.
 ..* fornece a senha para conexão com o banco de dados (<db.password>) para o usuário <db.user>
 
+## Permissão de execução
+
+Atribuindo permissão de execução aos scripts: 
+
+```shell
+chmod +x *.sh
+```
+
 ## Executar extração de documentos
 
 ```shell
