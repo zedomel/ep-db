@@ -1,3 +1,3 @@
 #!/bin/sh
 
-mvn exec:java -Dexec.mainClass="ep.db.mdp.pagerank.RelevanceCalculator"
+mvn exec:java -Dexec.mainClass="ep.db.pagerank.RelevanceCalculator"
