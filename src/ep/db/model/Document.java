@@ -98,6 +98,8 @@ public class Document {
 	 */
 	private double rank;
 
+	private String url;
+
 	/**
 	 * Cria um novo documento
 	 */
@@ -384,6 +386,22 @@ public class Document {
 	public void setRank(double rank) {
 		this.rank = rank;
 	}
+	
+	/**
+	 * Retorna URL para o documento
+	 * @return URL do documento
+	 */
+	public String getUrl() {
+		return url;
+	}
+	
+	/**
+	 * Atribu o URL para o documento.
+	 * @param url URL externo para o documento.
+	 */
+	public void setURL(String url) {
+		this.url = url;
+	}
 
 	/**
 	 * Retorna uma representação textual do documento.
@@ -399,4 +417,6 @@ public class Document {
 			sb.append(getPublicationDate() + " ");
 		return sb.toString().trim(); 
 	}
+
+	
 }

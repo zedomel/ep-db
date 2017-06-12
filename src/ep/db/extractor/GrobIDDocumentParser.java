@@ -168,46 +168,52 @@ public final class GrobIDDocumentParser implements DocumentParser{
 
 	@Override
 	public List<Document> getReferences() {
-		List<Document> refs = new ArrayList<>(references.size());
-		for(BibDataSet bds : references){
-			BiblioItem bib = bds.getResBib();
-			if (!metadata.getDOI().equals(bib.getDOI())){
-				Document ref = new Document();
+		return references.parallelStream()
+		.map((ref) -> processReference(ref))
+		.filter((ref) -> ref != null)
+		.collect(Collectors.toCollection(ArrayList::new));
+	}
 
-				ref.setDOI(bib.getDOI());
-				ref.setAuthors(Utils.getAuthors(bib.getAuthors()));
-				ref.setTitle(bib.getTitle());
-				ref.setAbstract(bib.getAbstract());
-				ref.setIssue(bib.getIssue());
-				if (bib.getKeywords() != null && !bib.getKeywords().isEmpty() )
-					ref.setKeywords(bib.getKeywords().stream().map(s -> s.getKeyword().toString()).collect(Collectors.joining(", ")));
-				ref.setLanguage(Utils.languageToISO3166(bib.getLanguage()));
-				ref.setPages(bib.getPageRange());
-				ref.setVolume(bib.getVolume());
+	private Document processReference(BibDataSet bds) {
+		BiblioItem bib = bds.getResBib();
+		Document ref = null;
+		if (!metadata.getDOI().equals(bib.getDOI())){
+			ref = new Document();
 
-				// Set Container ISSN
-				if ( bib.getISSN() != null )
-					ref.setISSN(bib.getISSN());
-				else if (bib.getISSNe() != null )
-					ref.setISSN(bib.getISSNe());
+			ref.setDOI(bib.getDOI());
+			ref.setAuthors(Utils.getAuthors(bib.getAuthors()));
+			ref.setTitle(bib.getTitle());
+			ref.setAbstract(bib.getAbstract());
+			ref.setIssue(bib.getIssue());
+			if (bib.getKeywords() != null && !bib.getKeywords().isEmpty() )
+				ref.setKeywords(bib.getKeywords().stream().map(s -> s.getKeyword().toString()).collect(Collectors.joining(", ")));
+			ref.setLanguage(Utils.languageToISO3166(bib.getLanguage()));
+			ref.setPages(bib.getPageRange());
+			ref.setVolume(bib.getVolume());
 
-				// Set Container Name
-				if ( bib.getJournal() != null )
-					ref.setContainer(bib.getJournal());
-				else if ( bib.getEvent() != null )
-					ref.setContainer(bib.getEvent());
-				else if ( bib.getBookTitle() != null )
-					ref.setContainer(bib.getBookTitle());
+			// Set Container ISSN
+			if ( bib.getISSN() != null )
+				ref.setISSN(bib.getISSN());
+			else if (bib.getISSNe() != null )
+				ref.setISSN(bib.getISSNe());
 
-				//Set publication date
-				if ( bib.getPublicationDate() != null )
-					ref.setPublicationDate( bib.getPublicationDate() );
-				else if ( bib.getYear() != null ) 
-					ref.setPublicationDate( bib.getYear() );
+			// Set Container Name
+			if ( bib.getJournal() != null )
+				ref.setContainer(bib.getJournal());
+			else if ( bib.getEvent() != null )
+				ref.setContainer(bib.getEvent());
+			else if ( bib.getBookTitle() != null )
+				ref.setContainer(bib.getBookTitle());
 
-				refs.add(ref);
-			}
+			//Set publication date
+			if ( bib.getPublicationDate() != null )
+				ref.setPublicationDate( bib.getPublicationDate() );
+			else if ( bib.getYear() != null ) 
+				ref.setPublicationDate( bib.getYear() );
+
+			// Set URL
+			ref.setURL(bib.getURL());
 		}
-		return refs;
+		return ref;
 	}
 }

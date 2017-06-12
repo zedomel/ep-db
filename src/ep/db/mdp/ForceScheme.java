@@ -5,11 +5,12 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 
-import cern.colt.matrix.DoubleMatrix1D;
-import cern.colt.matrix.DoubleMatrix2D;
-import cern.colt.matrix.impl.DenseDoubleMatrix2D;
-import cern.colt.matrix.linalg.Algebra;
-import cern.jet.math.Functions;
+import cern.colt.matrix.tdouble.DoubleMatrix1D;
+import cern.colt.matrix.tdouble.DoubleMatrix2D;
+import cern.colt.matrix.tdouble.algo.DenseDoubleAlgebra;
+import cern.colt.matrix.tdouble.impl.DenseDoubleMatrix2D;
+import cern.jet.math.tdouble.DoubleFunctions;
+
 
 public class ForceScheme {
 
@@ -50,7 +51,7 @@ public class ForceScheme {
 		}
 
 		// Gradiente Descendente
-		final Algebra alg = new Algebra();
+		final DenseDoubleAlgebra alg = new DenseDoubleAlgebra();
 		double prevDeltaSum = Double.POSITIVE_INFINITY;
 		for (int iter = 0; iter < maxIter; iter++) {
 			double deltaSum = 0;
@@ -62,12 +63,12 @@ public class ForceScheme {
 					if (a == b)
 						continue;
 
-					DoubleMatrix1D direction = y.viewRow(b).copy().assign(y.viewRow(a), Functions.minus);
+					DoubleMatrix1D direction = y.viewRow(b).copy().assign(y.viewRow(a), DoubleFunctions.minus);
 					double d2 = Math.max(alg.norm2(direction), eps);
 					double delta = (xs.getQuick(a, b) - d2) / fraction;
 					deltaSum += Math.abs(delta);
-					direction.assign(Functions.mult(delta/d2));
-					y.viewRow(b).assign(direction, Functions.plus);
+					direction.assign(DoubleFunctions.mult(delta/d2));
+					y.viewRow(b).assign(direction, DoubleFunctions.plus);
 				}
 			}
 

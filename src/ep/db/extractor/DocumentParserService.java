@@ -19,6 +19,7 @@ import org.grobid.core.mock.MockContext;
 import ep.db.database.DatabaseService;
 import ep.db.model.Author;
 import ep.db.model.Document;
+import ep.db.utils.Consolidation;
 
 /**
  * Classe principal para processamento dos documentos
@@ -30,7 +31,7 @@ import ep.db.model.Document;
 public class DocumentParserService {
 
 	private static final String PROP_FILE = "config.properties";
-	
+
 	/**
 	 * Diretório temporário
 	 */
@@ -44,12 +45,15 @@ public class DocumentParserService {
 	/**
 	 * Document Parser
 	 */
-	private DocumentParser documentParser;
+	private final DocumentParser documentParser;
 
 	/**
 	 * Serviço de manipulação do banco de dados.
 	 */
-	private DatabaseService dbService;
+	private final DatabaseService dbService;
+
+	private Consolidation consolidator;
+
 
 	/**
 	 * Cria um novo objecto {@link DocumentParserService} para 
@@ -62,6 +66,7 @@ public class DocumentParserService {
 	public DocumentParserService( DocumentParser parser, Properties config ) throws IOException{
 		this.documentParser = parser;
 		this.dbService = new DatabaseService(config);
+		this.consolidator = new Consolidation(config);
 	}
 
 	/**
@@ -126,19 +131,18 @@ public class DocumentParserService {
 	{
 		PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:**.pdf");
 		File dir = new File(docsDir);
+
 		try{
 			//Iterates over all documents in the directory
 			Files.list(dir.toPath()).forEach( (path) -> 
 			{
-				if ( matcher.matches(path)){
-					System.out.println(path);
+				if ( matcher.matches(path))
 					try {
 						// Adiciona documento
 						addDocument(path.toFile().getAbsolutePath());
 					} catch (Exception e) {
-						logger.error("Error importing document: "+path.toAbsolutePath(), e);
+						logger.error("Error importing document: "+path.toFile().getAbsolutePath(), e);
 					}
-				}
 			});
 
 		}catch(Exception e){
@@ -152,7 +156,7 @@ public class DocumentParserService {
 	 * adicionado.
 	 * @throws Exception erro ao processar/adicionar documento.
 	 */
-	public void addDocument(String docPath) throws Exception
+	private void addDocument(String docPath) throws Exception
 	{
 		File file = new File(docPath);
 		try {
@@ -165,8 +169,15 @@ public class DocumentParserService {
 					// Processa referências do documento recém adicionado
 					List<Document> references = parseReferences(file, doc);
 					if ( references != null && ! references.isEmpty() ){
-						//Adicona referências ao banco de dados.
+						//Adiciona referências ao banco de dados.
 						dbService.addReferences(docId, references);
+						references.parallelStream().forEach((ref) -> {
+							try {
+								consolidator.consolidate(ref);
+							} catch (Exception e) {
+								logger.error("Error consolidating document: " + ref.getDOI(), e);
+							}
+						});
 					}
 				}
 			}
@@ -224,6 +235,8 @@ public class DocumentParserService {
 			doc.setPublicationDate(documentParser.getPublicationDate());
 			doc.setLanguage(documentParser.getLanguage());
 
+			consolidator.consolidate(doc);
+
 			return doc;
 		} catch (Exception e) {
 			logger.error("Error extracting document's information: " + filename, e);
@@ -274,11 +287,15 @@ public class DocumentParserService {
 		try {
 			Properties properties = new Properties();
 			properties.load(new FileInputStream(PROP_FILE));
+
 			String grobidHome = properties.getProperty("grobid.home");
 			String grobidProperties = properties.getProperty("grobid.properties");
 			DocumentParser parser = new GrobIDDocumentParser(grobidHome, grobidProperties, true);
 			DocumentParserService parserService = new DocumentParserService(parser, properties);
+
+			long start = System.nanoTime();
 			parserService.addDocuments(args[0]);
+			System.out.println("Elapsed time: " + ((System.nanoTime() - start)/1e9));
 
 		} catch (Exception e) {
 			logger.error("Error adding documents", e);

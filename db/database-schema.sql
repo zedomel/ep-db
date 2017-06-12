@@ -6,15 +6,6 @@ DROP TABLE IF EXISTS documents_data;
 DROP TABLE IF EXISTS document_authors;
 DROP TABLE IF EXISTS documents;
 DROP TABLE IF EXISTS authors;
-DROP TABLE IF EXISTS options;
-
-CREATE TABLE options(
-	id		bigserial PRIMARY KEY,
-	option_name varchar(30) UNIQUE,
-	option_value varchar(30)
-);
-
-CREATE INDEX option_index ON options(option_name);
 
 CREATE TABLE documents (
 	doc_id				bigserial PRIMARY KEY,
@@ -93,11 +84,13 @@ CREATE TRIGGER tsvector_doc_update BEFORE INSERT OR UPDATE
  CREATE OR REPLACE FUNCTION documents_freqs() RETURNS TRIGGER AS $documents_freqs_trigger$
  	DECLARE
  		freq	jsonb;
+ 		sumFreqs int;
  	BEGIN 
 	 	
 	 	IF new.tsv IS NOT NULL THEN
 		 	BEGIN
-		   		SELECT array_to_json(array_agg(row)) INTO freq FROM (SELECT word, nentry 
+			 	SELECT sum(nentry) INTO sumFreqs FROM ts_stat( format('SELECT %s::tsvector', quote_literal(new.tsv) ) );
+		   		SELECT array_to_json(array_agg(row)) INTO freq FROM (SELECT word, nentry/sumFreqs::real as freq
 		   		FROM ts_stat( format('SELECT %s::tsvector', quote_literal(new.tsv) ) ) ) row;
 		    EXCEPTION
 		    	WHEN NO_DATA_FOUND THEN

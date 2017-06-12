@@ -21,14 +21,14 @@ import org.jfree.ui.ApplicationFrame;
 import org.jfree.ui.RefineryUtilities;
 import org.jfree.util.ShapeUtilities;
 
-import cern.colt.matrix.DoubleFactory1D;
-import cern.colt.matrix.DoubleFactory2D;
-import cern.colt.matrix.DoubleMatrix1D;
-import cern.colt.matrix.DoubleMatrix2D;
-import cern.colt.matrix.impl.DenseDoubleMatrix2D;
-import cern.colt.matrix.linalg.Algebra;
-import cern.colt.matrix.linalg.SingularValueDecomposition;
-import cern.jet.math.Functions;
+import cern.colt.matrix.tdouble.DoubleFactory1D;
+import cern.colt.matrix.tdouble.DoubleFactory2D;
+import cern.colt.matrix.tdouble.DoubleMatrix1D;
+import cern.colt.matrix.tdouble.DoubleMatrix2D;
+import cern.colt.matrix.tdouble.algo.DenseDoubleAlgebra;
+import cern.colt.matrix.tdouble.algo.decomposition.DenseDoubleSingularValueDecomposition;
+import cern.colt.matrix.tdouble.impl.DenseDoubleMatrix2D;
+import cern.jet.math.tdouble.DoubleFunctions;
 
 /**
  * Implmentação do algoritmo LAMP para
@@ -127,17 +127,19 @@ public class Lamp {
 
 		assert dim == a;
 
-		final Algebra alg = new Algebra();
-		DoubleMatrix2D Y = DoubleFactory2D.sparse.make(ninst, p, 0.0);
+		
+		DenseDoubleAlgebra alg = new DenseDoubleAlgebra();
+		
+		DoubleMatrix2D Y = DoubleFactory2D.dense.make(ninst, p, 0.0);
 
 		for (int pt = 0; pt < ninst; pt++){
-			// Calcula dos alfas
-			DoubleMatrix1D alpha = DoubleFactory1D.sparse.make(k, 0.0);
+			// Calculo dos alfas
+			DoubleMatrix1D alpha = DoubleFactory1D.dense.make(k, 0.0);
 			boolean skip = false;
 			for( int i = 0; i < k; i++){
 				// Verifica se o ponto a ser projetado é um ponto de controle
 				// para evitar divisão por zero.
-				double norm2 = alg.norm2( xs.viewRow(i).copy().assign(x.viewRow(pt), Functions.minus)); 
+				double norm2 = alg.norm2( xs.viewRow(i).copy().assign(x.viewRow(pt), DoubleFunctions.minus)); 
 				if ( norm2 < TOL ){
 					// ponto muito próximo ao ponto amostrado
 					// posicionando de forma similar.
@@ -158,30 +160,31 @@ public class Lamp {
 			DoubleMatrix1D xtilde = DoubleFactory1D.dense.make(dim, 0.0);
 			DoubleMatrix1D ytilde = DoubleFactory1D.dense.make(p, 0.0);
 
-			xtilde = alg.mult(xs.viewDice(), alpha).assign(Functions.div(alphaSum));
-			ytilde = alg.mult(ys.viewDice(), alpha).assign(Functions.div(alphaSum));
+			xtilde = alg.mult(xs.viewDice(), alpha).assign(DoubleFunctions.div(alphaSum));
+			ytilde = alg.mult(ys.viewDice(), alpha).assign(DoubleFunctions.div(alphaSum));
 
 			DoubleMatrix2D xhat = xs.copy(), yhat = ys.copy();
 
 			// Computa x^ e y^ (eq. 6)
 			for( int i = 0; i < xs.rows(); i++){
-				xhat.viewRow(i).assign(xtilde, Functions.minus);
-				yhat.viewRow(i).assign(ytilde, Functions.minus);
+				xhat.viewRow(i).assign(xtilde, DoubleFunctions.minus);
+				yhat.viewRow(i).assign(ytilde, DoubleFunctions.minus);
 			}
 
 			DoubleMatrix2D At, B;
 
 			// Sqrt(alpha)
-			alpha.assign(Functions.sqrt);
+			alpha.assign(DoubleFunctions.sqrt);
 			for(int i = 0; i < xhat.columns(); i++ )
-				xhat.viewColumn(i).assign(alpha, Functions.mult);
+				xhat.viewColumn(i).assign(alpha, DoubleFunctions.mult);
 			for(int i = 0; i < yhat.columns(); i++ )
-				yhat.viewColumn(i).assign(alpha, Functions.mult);
+				yhat.viewColumn(i).assign(alpha, DoubleFunctions.mult);
 
 			At = xhat.viewDice();
 			B = yhat;
 
-			SingularValueDecomposition svd = new SingularValueDecomposition( At.zMult(B, null) );
+			DenseDoubleSingularValueDecomposition svd = new DenseDoubleSingularValueDecomposition( 
+					At.zMult(B, null), true , false  );
 			DoubleMatrix2D U = svd.getU(), V = svd.getV();
 
 			// eq. 7: M = UV
@@ -189,7 +192,7 @@ public class Lamp {
 
 			//eq. 8: y = (x - xtil) * M + ytil
 			DoubleMatrix1D rowX = x.viewRow(pt).copy();
-			rowX = M.viewDice().zMult(rowX.assign(xtilde, Functions.minus),null).assign(ytilde, Functions.plus);
+			rowX = M.viewDice().zMult(rowX.assign(xtilde, DoubleFunctions.minus),null).assign(ytilde, DoubleFunctions.plus);
 			Y.viewRow(pt).assign(rowX);
 		}
 

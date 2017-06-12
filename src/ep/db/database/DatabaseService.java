@@ -16,8 +16,9 @@ import java.util.TreeMap;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import cern.colt.matrix.DoubleMatrix2D;
-import cern.colt.matrix.impl.SparseDoubleMatrix2D;
+import cern.colt.matrix.tdouble.DoubleMatrix2D;
+import cern.colt.matrix.tdouble.impl.DenseDoubleMatrix2D;
+import cern.colt.matrix.tdouble.impl.SparseDoubleMatrix2D;
 import edu.uci.ics.jung.algorithms.scoring.PageRank;
 import edu.uci.ics.jung.graph.DirectedGraph;
 import edu.uci.ics.jung.graph.DirectedSparseGraph;
@@ -212,8 +213,8 @@ public class DatabaseService {
 
 		String where = sql.toString();
 		
-		// Recupera frequencia indiviual de cada termo
-		final Map<String, Integer> termsFreq = getTermsFrequency(where);
+		// Recupera frequencia indiviual de cada termo na base de dados (todos os documentos)
+		final Map<String, Integer> termsFreq = getTermsCounts(where);
 
 		// Mapeamento termo -> coluna na matriz (bag of words)
 		final Map<String, Integer> termsToColumnMap = new HashMap<>();
@@ -223,7 +224,7 @@ public class DatabaseService {
 			++c;
 		}
 
-		DoubleMatrix2D matrix = new SparseDoubleMatrix2D(numberOfDocuments, termsFreq.size());
+		DoubleMatrix2D matrix = new DenseDoubleMatrix2D(numberOfDocuments, termsFreq.size());
 
 		// Popula matriz com frequencia dos termos em cada documento
 		buildFrequencyMatrix(matrix, termsFreq, termsToColumnMap, where, true );
@@ -481,18 +482,17 @@ public class DatabaseService {
 	}
 
 	/**
-	 * Retorna mapa com frequência individual de cada termo com ocorrência
-	 * maior que 1 (zero), ou seja, termos que tenham ocorrido em pelo menos
-	 * dois documentos.
+	 * Retorna mapa com contagem do numero de documentos que um termo ocorre, 
+	 * ou seja, numero de documentos que um termo apareceu.
 	 * @param where parte da consultam em SQL indicando id's do documentos a serem
 	 * considerados ou <code>null</code> para todos os documentos.
-	 * @return mapa de termos ordenados pela frequência absoluta.
+	 * @return mapa de termos ordenados pela contagem absoluta.
 	 * @throws Exception
 	 */
-	private TreeMap<String, Integer> getTermsFrequency(String where) throws Exception {
+	private TreeMap<String, Integer> getTermsCounts(String where) throws Exception {
 		try ( Connection conn = db.getConnection();){
 
-			String sql = "SELECT word,nentry FROM ts_stat('SELECT tsv FROM documents";
+			String sql = "SELECT word,ndoc FROM ts_stat('SELECT tsv FROM documents";
 			if ( where != null && !where.isEmpty() )
 				sql += where;
 			sql += "') WHERE nentry > 1 AND ndoc > 1";
@@ -502,7 +502,7 @@ public class DatabaseService {
 			TreeMap<String,Integer> termsFreq = new TreeMap<>();
 			while( rs.next() ){
 				String term = rs.getString("word");
-				int freq = rs.getInt("nentry");
+				int freq = rs.getInt("ndoc");
 				termsFreq.put(term, freq);
 			}
 			return termsFreq;
@@ -534,25 +534,39 @@ public class DatabaseService {
 			Statement stmt = conn.createStatement();
 			ResultSet rs = stmt.executeQuery(sql);
 			int doc = 0;
+			
+			// Numero de documentos
+			int n = matrix.rows();
+			ObjectMapper mapper = new ObjectMapper();
+			
 			while( rs.next() ){
 				String terms = rs.getString("freqs");
 				if ( terms != null && !terms.isEmpty() ){
-					ObjectMapper mapper = new ObjectMapper();
+					
 					List<Map<String,Object>> t = mapper.readValue(terms, 
 							new TypeReference<List<Map<String,Object>>>(){});
+					
 					for(Map<String,Object> o : t){
 						String term = (String) o.get("word");
 						if ( termsToColumnMap.containsKey(term)){
-							double freq = ((Integer) o.get("nentry")).doubleValue();
-							if ( normalize )
-								freq /= termsFreq.get(term);
+							double freq = ((Number) o.get("freq")).doubleValue();
+
+							// 1 + log f(t,d)
+							double tfidf = 1;
+							if ( freq != 0 )
+								tfidf += Math.log(freq);
+							
+							// ( 1 + log f(t,d) ) * ( log N / ndoc(t) )
+							tfidf *= Math.log(n/(1.0 + termsFreq.get(term)));
+							
 							int col = termsToColumnMap.get(term);
-							matrix.setQuick(doc, col, freq);
+							matrix.setQuick(doc, col, tfidf);	
 						}
 					}
 				}
 				++doc;
 			}
+			
 		}catch( Exception e){
 			throw e;
 		}
