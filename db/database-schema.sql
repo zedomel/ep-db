@@ -83,22 +83,21 @@ CREATE TRIGGER tsvector_doc_update BEFORE INSERT OR UPDATE
     
  CREATE OR REPLACE FUNCTION documents_freqs() RETURNS TRIGGER AS $documents_freqs_trigger$
  	DECLARE
- 		freq	jsonb;
+ 		json_str	jsonb;
  		sumFreqs int;
  	BEGIN 
 	 	
 	 	IF new.tsv IS NOT NULL THEN
 		 	BEGIN
-			 	SELECT sum(nentry) INTO sumFreqs FROM ts_stat( format('SELECT %s::tsvector', quote_literal(new.tsv) ) );
-		   		SELECT array_to_json(array_agg(row)) INTO freq FROM (SELECT word, nentry/sumFreqs::real as freq
-		   		FROM ts_stat( format('SELECT %s::tsvector', quote_literal(new.tsv) ) ) ) row;
+		   		SELECT array_to_json(array_agg(row)) INTO json_str FROM 
+		   		ts_stat( format('SELECT %s::tsvector', quote_literal(new.tsv) ) ) row;
 		    EXCEPTION
 		    	WHEN NO_DATA_FOUND THEN
-		    		freq := NULL;
+		    		json_str := NULL;
 		    END;
 		END IF;
 	    
-	    new.freqs := freq;
+	    new.freqs := json_str;
 	    
 	  	return new;
 	END;

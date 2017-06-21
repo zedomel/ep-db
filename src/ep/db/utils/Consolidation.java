@@ -10,7 +10,6 @@ import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
 import org.grobid.core.data.BiblioItem;
-import org.grobid.core.utilities.TextUtilities;
 
 import ep.db.extractor.Utils;
 import ep.db.mendeley.AuthTokenManager;
@@ -47,6 +46,8 @@ public class Consolidation {
 
 	private final AuthTokenManager authTokenManager;
 	
+	public int counter = 0;
+	
 	public Consolidation( Properties config ) {
 		MendeleyConfiguration.setApiBaseUrl(config.getProperty(MENDELEY_HOST));
 		ClientCredentials credentials = new ClientCredentials(
@@ -57,44 +58,21 @@ public class Consolidation {
 	}
 
 	/**
-	 * Try to consolidate some uncertain bibliographical data with crossref web service based on
+	 * Try to consolidate some uncertain bibliographical data with mendeley web service based on
 	 * core metadata
 	 */
 	public boolean consolidate(Document doc) throws Exception {
 		boolean valid = false;
 
 		String doi = doc.getDOI();
-		String aut = null;
-		if ( doc.getAuthors() != null && doc.getAuthors().size() > 0 )
-			aut = doc.getAuthors().get(0).getName();
-		
-		String title = doc.getTitle();
-		String journalTitle = doc.getContainer();
-		String pubDate = doc.getPublicationDate();
 
-		if (aut != null) {
-			aut = TextUtilities.removeAccents(aut);
-		}
-		if (title != null) {
-			title = TextUtilities.removeAccents(title);
-		}
-
-		
 		BiblioItem result = null;
 
-		if ( StringUtils.isNotBlank(doi)){
+		if ( StringUtils.isNotBlank(doi))
 			result = consolidateMendeleyGetByDOI(doi);
-		}
-		if (result == null && StringUtils.isNotBlank(title)
-				&& StringUtils.isNotBlank(aut)) {
-			result = consolidateMendeleyGetByAuthorTitle(aut,title);
-		}
-		if (result == null && StringUtils.isNotBlank(title) && 
-				StringUtils.isNotBlank(journalTitle) && StringUtils.isNotBlank(pubDate)	){
-			result = consolidateMendeleyGetByJournalTitleYear(title, journalTitle, pubDate);
-		}
 		
 		if ( result != null ){
+			++counter;
 			if ( doc.getDOI() == null && result.getDOI() != null)
 				doc.setDOI(result.getDOI());
 			if (doc.getAbstract() == null && result.getAbstract() != null)
@@ -328,7 +306,7 @@ public class Consolidation {
 					
 				} catch (Exception e) {
 					System.err.println("Warning: Consolidation set true, " +
-							"but the online connection to Crossref fails.");
+							"but the online connection to Mendeley fails.");
 				}
 			}
 		}

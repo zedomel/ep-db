@@ -17,6 +17,7 @@ import org.apache.log4j.Logger;
 import org.grobid.core.mock.MockContext;
 
 import ep.db.database.DatabaseService;
+import ep.db.html_parser.DocumentHTMLParser;
 import ep.db.model.Author;
 import ep.db.model.Document;
 import ep.db.utils.Consolidation;
@@ -52,7 +53,9 @@ public class DocumentParserService {
 	 */
 	private final DatabaseService dbService;
 
-	private Consolidation consolidator;
+	private final Consolidation consolidator;
+
+	private final DocumentHTMLParser htmlParser;
 
 
 	/**
@@ -67,6 +70,7 @@ public class DocumentParserService {
 		this.documentParser = parser;
 		this.dbService = new DatabaseService(config);
 		this.consolidator = new Consolidation(config);
+		this.htmlParser = new DocumentHTMLParser();
 	}
 
 	/**
@@ -169,15 +173,24 @@ public class DocumentParserService {
 					// Processa referências do documento recém adicionado
 					List<Document> references = parseReferences(file, doc);
 					if ( references != null && ! references.isEmpty() ){
-						//Adiciona referências ao banco de dados.
-						dbService.addReferences(docId, references);
 						references.parallelStream().forEach((ref) -> {
 							try {
 								consolidator.consolidate(ref);
 							} catch (Exception e) {
 								logger.error("Error consolidating document: " + ref.getDOI(), e);
 							}
+
+							if ( ref.getAbstract() == null || ref.getAbstract().trim().isEmpty()){
+								try {
+									htmlParser.process(ref);
+								} catch (IOException e) {
+									logger.error("Error parsing HTML document: " + ref.getDOI(), e);
+								}
+							}
 						});
+						//Adiciona referências ao banco de dados.
+						dbService.addReferences(docId, references);
+
 					}
 				}
 			}
@@ -296,6 +309,8 @@ public class DocumentParserService {
 			long start = System.nanoTime();
 			parserService.addDocuments(args[0]);
 			System.out.println("Elapsed time: " + ((System.nanoTime() - start)/1e9));
+
+			System.out.println("Consolidated: " + parserService.consolidator.counter);
 
 		} catch (Exception e) {
 			logger.error("Error adding documents", e);

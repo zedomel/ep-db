@@ -25,6 +25,8 @@ import edu.uci.ics.jung.graph.DirectedSparseGraph;
 import ep.db.extractor.Utils;
 import ep.db.model.Author;
 import ep.db.model.Document;
+import ep.db.tfidf.LogaritmicTFIDF;
+import ep.db.tfidf.TFIDF;
 
 /**
  * Provedor de serviços com o banco de dados.
@@ -180,6 +182,10 @@ public class DatabaseService {
 			throw e;
 		}
 	}
+	
+	public DoubleMatrix2D buildFrequencyMatrix(long[] docIds) throws Exception {
+		return buildFrequencyMatrix(docIds, new LogaritmicTFIDF());
+	}
 
 	/**
 	 * Retorna matrix de frequência de todos os termos presentes
@@ -190,7 +196,7 @@ public class DatabaseService {
 	 * termos.
 	 * @throws Exception erro ao executar consulta.
 	 */
-	public DoubleMatrix2D buildFrequencyMatrix(long[] docIds) throws Exception {
+	public DoubleMatrix2D buildFrequencyMatrix(long[] docIds, TFIDF tfidfCalc) throws Exception {
 		
 		// Retorna numero de documentos e ocorrencia total dos termos
 		int numberOfDocuments;
@@ -214,20 +220,22 @@ public class DatabaseService {
 		String where = sql.toString();
 		
 		// Recupera frequencia indiviual de cada termo na base de dados (todos os documentos)
-		final Map<String, Integer> termsFreq = getTermsCounts(where);
+		final Map<String, Integer> termsCount = getTermsCounts(where);
 
 		// Mapeamento termo -> coluna na matriz (bag of words)
 		final Map<String, Integer> termsToColumnMap = new HashMap<>();
 		int c = 0;
-		for(String key : termsFreq.keySet()){
+		for(String key : termsCount.keySet()){
 			termsToColumnMap.put(key, c);
 			++c;
 		}
 
-		DoubleMatrix2D matrix = new DenseDoubleMatrix2D(numberOfDocuments, termsFreq.size());
+		DoubleMatrix2D matrix = new DenseDoubleMatrix2D(numberOfDocuments, termsCount.size());
 
+		tfidfCalc.setTermsCount(termsCount);
+		
 		// Popula matriz com frequencia dos termos em cada documento
-		buildFrequencyMatrix(matrix, termsFreq, termsToColumnMap, where, true );
+		buildFrequencyMatrix(matrix, termsCount, termsToColumnMap, where, true, tfidfCalc );
 
 		return matrix;
 	}
@@ -499,13 +507,13 @@ public class DatabaseService {
 
 			Statement stmt = conn.createStatement();
 			ResultSet rs = stmt.executeQuery(sql);
-			TreeMap<String,Integer> termsFreq = new TreeMap<>();
+			TreeMap<String,Integer> termsCount = new TreeMap<>();
 			while( rs.next() ){
 				String term = rs.getString("word");
-				int freq = rs.getInt("ndoc");
-				termsFreq.put(term, freq);
+				int ndoc = rs.getInt("ndoc");
+				termsCount.put(term, ndoc);
 			}
-			return termsFreq;
+			return termsCount;
 
 		}catch( Exception e){
 			throw e;
@@ -515,15 +523,15 @@ public class DatabaseService {
 	/**
 	 * Constroi matrix de frequência de termos (bag of words). 
 	 * @param matrix matrix de frequência de termos já inicializada
-	 * @param termsFreq mapa com os termos ordenados por frequência. 
+	 * @param termsCount mapa com os termos ordenados por frequência. 
 	 * @param termsToColumnMap mapa de termos para indice da coluna na matrix de frequência.
 	 * @param where clause WHERE em SQL para filtragem de documentos por id's.
 	 * @param normalize se <code>true</code> a frequência de cada termo será normalizada,
 	 * caso contrário a frequência absoluta é considerada.
 	 * @throws Exception erro ao executar consulta.
 	 */
-	private void buildFrequencyMatrix(DoubleMatrix2D matrix, Map<String, Integer> termsFreq,
-			Map<String, Integer> termsToColumnMap, String where, boolean normalize) throws Exception {
+	private void buildFrequencyMatrix(DoubleMatrix2D matrix, Map<String, Integer> termsCount,
+			Map<String, Integer> termsToColumnMap, String where, boolean normalize, TFIDF tfidfCalc) throws Exception {
 		try ( Connection conn = db.getConnection();){
 
 			String sql = "SELECT freqs FROM documents";
@@ -549,15 +557,11 @@ public class DatabaseService {
 					for(Map<String,Object> o : t){
 						String term = (String) o.get("word");
 						if ( termsToColumnMap.containsKey(term)){
-							double freq = ((Number) o.get("freq")).doubleValue();
-
-							// 1 + log f(t,d)
-							double tfidf = 1;
+							double freq = ((Number) o.get("nentry")).doubleValue();
+							
+							double tfidf = tfidfCalc.calculate(freq, n, term);
 							if ( freq != 0 )
 								tfidf += Math.log(freq);
-							
-							// ( 1 + log f(t,d) ) * ( log N / ndoc(t) )
-							tfidf *= Math.log(n/(1.0 + termsFreq.get(term)));
 							
 							int col = termsToColumnMap.get(term);
 							matrix.setQuick(doc, col, tfidf);	
